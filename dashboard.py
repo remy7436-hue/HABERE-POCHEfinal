@@ -207,11 +207,8 @@ def synchroniser_au_demarrage():
                 try:
                     dt = datetime.fromtimestamp(int(timestamp_str))
                     date_time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-                    
-                    # Débogage brut API pour les logs
-                    print(f"DEBUG API - F: {temp_f_val}")
 
-                    # Conversion Fahrenheit vers Celsius avec offset de correction (-1.5 °C pour réaligner)
+                    # Conversion Fahrenheit vers Celsius avec offset de correction (-1.5 °C)
                     temp_brute = (float(temp_f_val) - 32.0) * 5.0 / 9.0
                     temp_c = round(temp_brute - 1.5, 2)
 
@@ -238,8 +235,9 @@ def synchroniser_au_demarrage():
                     uv = int(float(solar_data.get("uvi", {}).get("list", {}).get(timestamp_str, 0)))
 
                     if -50 <= temp_c <= 60:
+                        # Utilisation de REPLACE pour mettre à jour les anciennes lignes existantes
                         cursor.execute("""
-                            INSERT OR IGNORE INTO mesures (
+                            INSERT OR REPLACE INTO mesures (
                                 date_time, temp_c, humidity, pressure, wind_speed,
                                 wind_gust, wind_direction, rain_rate, rain_day,
                                 rain_week, rain_month, rain_year, solar_radiation, uv
@@ -284,7 +282,6 @@ else:
     df_sorted = df.sort_values("date_time")
     current_time = derniere_mesure['date_time']
 
-    # Variations sur 1h et 3h
     target_1h = current_time - timedelta(hours=1)
     df_temp_1h = df_sorted.copy()
     df_temp_1h['diff_1h'] = (df_temp_1h['date_time'] - target_1h).abs()
@@ -325,7 +322,6 @@ else:
     moy_mois_station = round(df_mois_actuel['temp_c'].mean(), 1) if len(df_mois_actuel) > 10 else derniere_mesure['temp_c']
     donnees_suffisantes = len(df_mois_actuel) > 10
 
-    # --- ORGANISATION EN 5 ONGLETS ---
     tab_dashboard, tab_previ, tab_climat, tab_graph, tab_brutes = st.tabs([
         "📊 Tableau de Bord",
         "🔮 Prévisions & Risques",
