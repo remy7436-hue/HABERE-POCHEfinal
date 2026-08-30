@@ -185,14 +185,14 @@ def init_db_et_maj():
             data = response.json()
             if "observations" in data and len(data["observations"]) > 0:
                 obs = data["observations"][0]
-                
+
                 obs_time = datetime.now()
                 if "obsTimeLocal" in obs:
                     try:
                         obs_time = datetime.strptime(obs["obsTimeLocal"], "%Y-%m-%d %H:%M:%S")
                     except Exception:
                         pass
-                
+
                 date_time_str = obs_time.strftime("%Y-%m-%d %H:%M:%S")
                 metric = obs.get("metric", {})
 
@@ -253,22 +253,15 @@ else:
 
     # --- Calculs pluie jour et mois (avec base fixe de 66 mm pour le mois) ---
     pluie_jour = derniere_mesure.get('rain_day', 0.0)
-    
+
     df['date_dt'] = pd.to_datetime(df['date_time'])
     df_mois_en_cours = df[
-        (df['date_dt'].dt.year == current_time.year) & 
+        (df['date_dt'].dt.year == current_time.year) &
         (df['date_dt'].dt.month == current_time.month)
     ]
-    
-    # Cumul de base connu pour le mois d'août
-    PLUIE_BASE_MOIS = 66.0 
-    
-    if not df_mois_en_cours.empty:
-        df_mois_en_cours['jour'] = df_mois_en_cours['date_dt'].dt.date
-        pluie_mois_suivie = round(df_mois_en_cours.groupby('jour')['rain_day'].max().sum(), 1)
-        pluie_mois = round(PLUIE_BASE_MOIS + pluie_jour, 1)
-    else:
-        pluie_mois = round(PLUIE_BASE_MOIS + pluie_jour, 1)
+
+    PLUIE_BASE_MOIS = 66.0
+    pluie_mois = round(PLUIE_BASE_MOIS + pluie_jour, 1)
 
     target_1h = current_time - timedelta(hours=1)
     df_temp_1h = df_sorted.copy()
@@ -300,15 +293,33 @@ else:
     uv_actuel = int(derniere_mesure['uv'])
     uv_niveau, uv_conseil_txt, uv_recos = analyser_indice_uv(uv_actuel)
 
+    # --- Climatologie & Normales Mensuelles (Moyenne montagne ~900m) ---
     mois_actuel = current_time.month
     normales_ref = {
-        1: -1.0, 2: 0.0, 3: 4.0, 4: 8.0, 5: 12.0, 6: 16.0,
-        7: 18.0, 8: 17.5, 9: 13.0, 10: 8.5, 11: 3.0, 12: 0.0
+        1: {"temp": -1.0, "pluie": 90.0},
+        2: {"temp": 0.0, "pluie": 80.0},
+        3: {"temp": 4.0, "pluie": 95.0},
+        4: {"temp": 8.0, "pluie": 110.0},
+        5: {"temp": 12.0, "pluie": 130.0},
+        6: {"temp": 16.0, "pluie": 140.0},
+        7: {"temp": 18.0, "pluie": 130.0},
+        8: {"temp": 17.5, "pluie": 140.0},
+        9: {"temp": 13.0, "pluie": 115.0},
+        10: {"temp": 8.5, "pluie": 100.0},
+        11: {"temp": 3.0, "pluie": 100.0},
+        12: {"temp": 0.0, "pluie": 95.0}
     }
-    normale_saison = normales_ref.get(mois_actuel, 15.0)
+    normale_saison = normales_ref.get(mois_actuel, {"temp": 15.0, "pluie": 100.0})["temp"]
+    normale_pluie_mois = normales_ref.get(mois_actuel, {"temp": 15.0, "pluie": 100.0})["pluie"]
+
     df_mois_actuel = df_sorted[(df_sorted['date_time'].dt.year == current_time.year) & (df_sorted['date_time'].dt.month == mois_actuel)]
-    moy_mois_station = round(df_mois_actuel['temp_c'].mean(), 1) if len(df_mois_actuel) > 10 else derniere_mesure['temp_c']
-    donnees_suffisantes = len(df_mois_actuel) > 10
+    
+    # Exigence d'un minimum de données pour un calcul mensuel lissé et robuste
+    calcul_fiable = len(df_mois_actuel) >= 24
+    if calcul_fiable:
+        moy_mois_station = round(df_mois_actuel['temp_c'].mean(), 1)
+    else:
+        moy_mois_station = round(df_mois_actuel['temp_c'].mean(), 1) if not df_mois_actuel.empty else derniere_mesure['temp_c']
 
     tab_dashboard, tab_previ, tab_climat, tab_graph, tab_brutes = st.tabs([
         "📊 Tableau de Bord",
@@ -392,27 +403,33 @@ else:
     with tab_climat:
         st.subheader("🌱 Climatologie, Jardin & Astronomie")
         c_col1, c_col2 = st.columns(2)
+        
         with c_col1:
-            st.markdown("### 🌡️ Comparatif Climatique (900m)")
-            diff_normale = round(moy_mois_station - normale_saison, 1)
-            if not donnees_suffisantes:
-                st.info("💡 Station récente : estimation basée sur la température actuelle.")
-            st.write(f"* **Moyenne du mois :** `{moy_mois_station} °C`")
-            st.write(f"* **Normale saisonnière :** `{normale_saison} °C`")
-            if diff_normale > 0.5:
-                st.warning(f"🌡️ Mois plus chaud de `+{diff_normale} °C` par rapport à la normale.")
-            elif diff_normale < -0.5:
-                st.info(f"❄️ Mois plus frais de `{diff_normale} °C` par rapport à la normale.")
+            st.markdown("### 🌡️ Bilan Thermique du Mois")
+            if calcul_fiable:
+                diff_normale = round(moy_mois_station - normale_saison, 1)
+                st.metric("Moyenne du mois", f"{moy_mois_station} °C", delta=f"{diff_normale:+.1f} °C vs normale ({normale_saison}°C)")
+                if abs(diff_normale) <= 0.5:
+                    st.success("✅ Températures conformes aux normales de saison.")
+                elif diff_normale > 0.5:
+                    st.warning(f"🌡️ Tendance mensuelle plus douce (+{diff_normale}°C).")
+                else:
+                    st.info(f"❄️ Tendance mensuelle plus fraîche ({diff_normale}°C).")
             else:
-                st.success("✅ Températures conformes aux normales de saison.")
+                st.info("💡 Accumulation des données en cours pour ce mois (moins de 24h de mesures).")
+                st.write(f"* **Normale de saison :** `{normale_saison} °C`")
 
             st.markdown("### 💧 Suivi de l'Évaporation")
             st.metric("Évapotranspiration (ET0)", f"{et0_jour} mm/j", help="Indice d'assèchement du sol et des plantes")
 
         with c_col2:
+            st.markdown("### 🌧️ Bilan Pluviométrique du Mois")
+            diff_pluie = round(pluie_mois - normale_pluie_mois, 1)
+            st.metric("Cumul mensuel estimé", f"{pluie_mois} mm", delta=f"{diff_pluie:+.1f} mm vs normale (~{normale_pluie_mois}mm)")
+            
             st.markdown("### 🌙 Calendrier Lunaire")
             st.metric(f"{lune_icone} {lune_phase}", f"Illumination {lune_illum}%")
-            
+
             lune_cols = st.columns(5)
             for i, offset in enumerate(range(-2, 3)):
                 futur_dt = current_time + timedelta(days=offset)
@@ -430,7 +447,7 @@ else:
     with tab_graph:
         st.subheader("📈 Graphiques d'Évolution")
         periode_choisie = st.radio("Sélectionner la période des graphiques :", ["24 heures", "48 heures", "7 jours"], horizontal=True)
-        
+
         heures_map = {"24 heures": 24, "48 heures": 48, "7 jours": 24 * 7}
         limite_dt = current_time - timedelta(hours=heures_map[periode_choisie])
         df_graphe = df_sorted[df_sorted['date_time'] >= limite_dt]
@@ -454,7 +471,7 @@ else:
             st.line_chart(df_graphe.set_index("date_time")[["wind_speed", "wind_gust"]])
         with g4:
             st.markdown("### Rayonnement Solaire (W/m²)")
-            st.line_chart(df_graphe.set_index("date_time")["solar_radiation"])
+            st.line_chart(df_graphe.set_index("date_time")[["solar_radiation"]])
 
     with tab_brutes:
         st.subheader("📁 Historique complet des mesures")
