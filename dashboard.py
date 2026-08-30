@@ -266,8 +266,6 @@ else:
     if not df_mois_en_cours.empty:
         df_mois_en_cours['jour'] = df_mois_en_cours['date_dt'].dt.date
         pluie_mois_suivie = round(df_mois_en_cours.groupby('jour')['rain_day'].max().sum(), 1)
-        # On s'assure d'ajouter la base de 66mm (en évitant de compter deux fois la pluie du jour si elle est déjà englobée dans la base ou non, 
-        # ici on prend la base fixe + l'incrément journalier glissant par sécurité)
         pluie_mois = round(PLUIE_BASE_MOIS + pluie_jour, 1)
     else:
         pluie_mois = round(PLUIE_BASE_MOIS + pluie_jour, 1)
@@ -456,7 +454,7 @@ else:
             st.line_chart(df_graphe.set_index("date_time")[["wind_speed", "wind_gust"]])
         with g4:
             st.markdown("### Rayonnement Solaire (W/m²)")
-            st.line_chart(df_graphe.set_index("date_time"]["solar_radiation"])
+            st.line_chart(df_graphe.set_index("date_time")["solar_radiation"])
 
     with tab_brutes:
         st.subheader("📁 Historique complet des mesures")
