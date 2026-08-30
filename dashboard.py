@@ -623,3 +623,9 @@ else:
     with tab_brutes:
         st.subheader("📁 Historique complet des mesures")
         st.dataframe(df, use_container_width=True)
+
+ 
+
+
+        
+ 
