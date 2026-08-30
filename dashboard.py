@@ -208,9 +208,8 @@ def synchroniser_au_demarrage():
                     dt = datetime.fromtimestamp(int(timestamp_str))
                     date_time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
 
-                    # Conversion Fahrenheit vers Celsius avec offset de correction (-1.5 °C)
-                    temp_brute = (float(temp_f_val) - 32.0) * 5.0 / 9.0
-                    temp_c = round(temp_brute - 1.5, 2)
+                    # Conversion Fahrenheit vers Celsius sans offset fixe
+                    temp_c = round((float(temp_f_val) - 32.0) * 5.0 / 9.0, 2)
 
                     humidity = int(float(outdoor.get("humidity", {}).get("list", {}).get(timestamp_str, 0)))
                     
@@ -235,7 +234,6 @@ def synchroniser_au_demarrage():
                     uv = int(float(solar_data.get("uvi", {}).get("list", {}).get(timestamp_str, 0)))
 
                     if -50 <= temp_c <= 60:
-                        # Utilisation de REPLACE pour mettre à jour les anciennes lignes existantes
                         cursor.execute("""
                             INSERT OR REPLACE INTO mesures (
                                 date_time, temp_c, humidity, pressure, wind_speed,
