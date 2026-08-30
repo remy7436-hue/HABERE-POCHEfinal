@@ -4,6 +4,7 @@ import pandas as pd
 import requests
 import sqlite3
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 
 plotly_disponible = True
@@ -251,9 +252,7 @@ else:
     df_sorted = df.sort_values("date_time")
     current_time = derniere_mesure['date_time']
 
-    # --- Calculs pluie jour et mois (avec base fixe de 66 mm pour le mois) ---
     pluie_jour = derniere_mesure.get('rain_day', 0.0)
-
     df['date_dt'] = pd.to_datetime(df['date_time'])
     df_mois_en_cours = df[
         (df['date_dt'].dt.year == current_time.year) &
@@ -293,7 +292,6 @@ else:
     uv_actuel = int(derniere_mesure['uv'])
     uv_niveau, uv_conseil_txt, uv_recos = analyser_indice_uv(uv_actuel)
 
-    # --- Climatologie & Normales Mensuelles (Moyenne montagne ~900m) ---
     mois_actuel = current_time.month
     normales_ref = {
         1: {"temp": -1.0, "pluie": 90.0},
@@ -313,16 +311,16 @@ else:
     normale_pluie_mois = normales_ref.get(mois_actuel, {"temp": 15.0, "pluie": 100.0})["pluie"]
 
     df_mois_actuel = df_sorted[(df_sorted['date_time'].dt.year == current_time.year) & (df_sorted['date_time'].dt.month == mois_actuel)]
-    
-    # Exigence d'un minimum de données pour un calcul mensuel lissé et robuste
     calcul_fiable = len(df_mois_actuel) >= 24
     if calcul_fiable:
         moy_mois_station = round(df_mois_actuel['temp_c'].mean(), 1)
     else:
         moy_mois_station = round(df_mois_actuel['temp_c'].mean(), 1) if not df_mois_actuel.empty else derniere_mesure['temp_c']
 
-    tab_dashboard, tab_previ, tab_climat, tab_graph, tab_brutes = st.tabs([
+    # --- Organisation des Onglets ---
+    tab_dashboard, tab_radar, tab_previ, tab_climat, tab_graph, tab_brutes = st.tabs([
         "📊 Tableau de Bord",
+        "📡 Radar & Anticipation (Windy)",
         "🔮 Prévisions & Risques",
         "🌱 Climat & Jardin",
         "📈 Graphiques",
@@ -353,6 +351,35 @@ else:
         if uv_actuel >= 3:
             recos_str = " • ".join([f"**{r}**" for r in uv_recos])
             st.info(f"🕶️ **Alerte Solaire :** {uv_conseil_txt} — Pensez à : {recos_str}")
+
+    with tab_radar:
+        st.subheader("📡 Radar Prévisionnel & Cartes d'Animation (Windy)")
+        st.markdown("""
+        Ce widget officiel **Windy** intègre directement la simulation interactive des précipitations et des masses d'air sur plusieurs jours.
+        Vous pouvez visualiser l'arrivée des perturbations à grande échelle et zoomer sur la Haute-Savoie.
+        """)
+
+        # Intégration officielle du widget iframe Windy (autorisée et supportée)
+        windy_html = """
+        <div style="width: 100%; height: 600px; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.2); background: #0e1117;">
+            <iframe src="https://embed.windy.com/embed2.html?lat=46.250&lon=6.433&detailLat=46.250&detailLon=6.433&width=650&height=450&zoom=9&level=surface&overlay=rain&product=ecmwf&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1"
+                    width="100%"
+                    height="100%"
+                    frameborder="0">
+            </iframe>
+        </div>
+        """
+        components.html(windy_html, height=620)
+
+        st.markdown("---")
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            st.markdown("### 🌐 Mode Plein Écran")
+            st.markdown("Pour un confort d'analyse maximal sur grand écran avec toutes les couches météo :")
+            st.link_button("Ouvrir Windy en plein écran", "https://www.windy.com/46.250/6.433?rain,46.000,6.433,9")
+        with col_btn2:
+            st.markdown("### 💡 Astuce de prévision locale")
+            st.info("Utilisez le curseur temporel en bas du widget Windy pour faire défiler les prévisions heure par heure et voir précisément quand la pluie touchera Habère-Poche.")
 
     with tab_previ:
         st.subheader("🔮 Bulletin Prévisionnel & Analyse des Risques")
@@ -403,7 +430,7 @@ else:
     with tab_climat:
         st.subheader("🌱 Climatologie, Jardin & Astronomie")
         c_col1, c_col2 = st.columns(2)
-        
+
         with c_col1:
             st.markdown("### 🌡️ Bilan Thermique du Mois")
             if calcul_fiable:
@@ -426,7 +453,7 @@ else:
             st.markdown("### 🌧️ Bilan Pluviométrique du Mois")
             diff_pluie = round(pluie_mois - normale_pluie_mois, 1)
             st.metric("Cumul mensuel estimé", f"{pluie_mois} mm", delta=f"{diff_pluie:+.1f} mm vs normale (~{normale_pluie_mois}mm)")
-            
+
             st.markdown("### 🌙 Calendrier Lunaire")
             st.metric(f"{lune_icone} {lune_phase}", f"Illumination {lune_illum}%")
 
