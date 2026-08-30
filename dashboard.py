@@ -178,7 +178,6 @@ def init_db_et_maj():
     """)
     conn.commit()
 
-    # Appel de l'API Weather Underground (Données actuelles)
     url = f"https://api.weather.com/v2/pws/observations/current?stationId={WU_STATION_ID}&format=json&units=m&apiKey={WU_API_KEY}"
     try:
         response = requests.get(url, timeout=10)
@@ -187,7 +186,6 @@ def init_db_et_maj():
             if "observations" in data and len(data["observations"]) > 0:
                 obs = data["observations"][0]
                 
-                # Récupération de l'heure de l'observation WU ou heure locale actuelle
                 obs_time = datetime.now()
                 if "obsTimeLocal" in obs:
                     try:
@@ -209,7 +207,6 @@ def init_db_et_maj():
                 solar_radiation = float(obs.get("solarRadiation", 0.0))
                 uv = int(obs.get("uv", 0))
 
-                # Insertion ou mise à jour si la minute existe déjà
                 cursor.execute("""
                     INSERT OR REPLACE INTO mesures (
                         date_time, temp_c, humidity, pressure, wind_speed,
@@ -224,7 +221,6 @@ def init_db_et_maj():
         conn.close()
 
 
-# Exécution de la synchro à chaque chargement / refresh de la page
 init_db_et_maj()
 
 if st.sidebar.button("🔄 Rafraîchir les données"):
@@ -254,6 +250,27 @@ else:
     dir_card = derniere_mesure['cardinal']
     df_sorted = df.sort_values("date_time")
     current_time = derniere_mesure['date_time']
+
+    # --- Calculs pluie jour et mois (avec base fixe de 66 mm pour le mois) ---
+    pluie_jour = derniere_mesure.get('rain_day', 0.0)
+    
+    df['date_dt'] = pd.to_datetime(df['date_time'])
+    df_mois_en_cours = df[
+        (df['date_dt'].dt.year == current_time.year) & 
+        (df['date_dt'].dt.month == current_time.month)
+    ]
+    
+    # Cumul de base connu pour le mois d'août
+    PLUIE_BASE_MOIS = 66.0 
+    
+    if not df_mois_en_cours.empty:
+        df_mois_en_cours['jour'] = df_mois_en_cours['date_dt'].dt.date
+        pluie_mois_suivie = round(df_mois_en_cours.groupby('jour')['rain_day'].max().sum(), 1)
+        # On s'assure d'ajouter la base de 66mm (en évitant de compter deux fois la pluie du jour si elle est déjà englobée dans la base ou non, 
+        # ici on prend la base fixe + l'incrément journalier glissant par sécurité)
+        pluie_mois = round(PLUIE_BASE_MOIS + pluie_jour, 1)
+    else:
+        pluie_mois = round(PLUIE_BASE_MOIS + pluie_jour, 1)
 
     target_1h = current_time - timedelta(hours=1)
     df_temp_1h = df_sorted.copy()
@@ -309,7 +326,7 @@ else:
         c1.metric("Température", f"{derniere_mesure['temp_c']} °C", delta=f"{delta_temp:+.1f} °C /1h")
         c2.metric("Humidité", f"{derniere_mesure['humidity']} %", delta=f"{delta_hum:+d} % /1h")
         c3.metric("Pression", f"{derniere_mesure['pressure']} hPa", delta=f"{delta_press:+.1f} hPa /1h")
-        c4.metric("Pluie du jour", f"{derniere_mesure['rain_day']} mm")
+        c4.metric("Pluie glissante (24h)", f"{pluie_24h_glissante} mm")
 
         c5, c6, c7, c8 = st.columns(4)
         c5.metric("Vent moyen", f"{derniere_mesure['wind_speed']} km/h", delta=f"Max {max_wind_row['wind_speed']} à {max_wind_row['date_time'].strftime('%H:%M')}")
@@ -321,8 +338,8 @@ else:
         u1, u2, u3, u4 = st.columns(4)
         u1.metric("Indice UV", uv_actuel, delta=uv_niveau)
         u2.metric("Rayonnement", f"{derniere_mesure['solar_radiation']} W/m²")
-        u3.metric("Pluie glissante (24h)", f"{pluie_24h_glissante} mm")
-        u4.metric("Pluie du mois", f"{derniere_mesure.get('rain_month', 0.0)} mm")
+        u3.metric("Pluie du jour", f"{pluie_jour} mm")
+        u4.metric("Pluie du mois", f"{pluie_mois} mm")
 
         if uv_actuel >= 3:
             recos_str = " • ".join([f"**{r}**" for r in uv_recos])
@@ -414,7 +431,6 @@ else:
 
     with tab_graph:
         st.subheader("📈 Graphiques d'Évolution")
-        
         periode_choisie = st.radio("Sélectionner la période des graphiques :", ["24 heures", "48 heures", "7 jours"], horizontal=True)
         
         heures_map = {"24 heures": 24, "48 heures": 48, "7 jours": 24 * 7}
@@ -440,7 +456,7 @@ else:
             st.line_chart(df_graphe.set_index("date_time")[["wind_speed", "wind_gust"]])
         with g4:
             st.markdown("### Rayonnement Solaire (W/m²)")
-            st.line_chart(df_graphe.set_index("date_time")["solar_radiation"])
+            st.line_chart(df_graphe.set_index("date_time"]["solar_radiation"])
 
     with tab_brutes:
         st.subheader("📁 Historique complet des mesures")
