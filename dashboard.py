@@ -163,7 +163,6 @@ def prevision_zambretti_avancee(pression_actuelle, delta_pression_3h, mois, dir_
     return text, tendance_txt, risque_orage
 
 
-@st.cache_resource
 def synchroniser_au_demarrage():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -199,39 +198,46 @@ def synchroniser_au_demarrage():
             solar_data = data.get("solar_and_uvi", {})
             rain = data.get("rainfall", {})
 
-            temp_dict = outdoor.get("temperature", {}).get("list", {})
-            if not temp_dict:
-                temp_dict = outdoor.get("temp", {}).get("list", {})
+            temp_dict = outdoor.get("temperature", {}).get("list") or outdoor.get("temp", {}).get("list") or {}
+            hum_dict = outdoor.get("humidity", {}).get("list") or {}
+            rel_pressure_dict = pressure_data.get("relative", {}).get("list") or pressure_data.get("baromrel", {}).get("list") or {}
+            
+            wind_speed_dict = wind.get("wind_speed", {}).get("list") or {}
+            wind_gust_dict = wind.get("wind_gust", {}).get("list") or {}
+            wind_dir_dict = wind.get("wind_direction", {}).get("list") or {}
+
+            rain_rate_dict = rain.get("rain_rate", {}).get("list") or {}
+            rain_day_dict = rain.get("rain_day", {}).get("list") or {}
+            rain_week_dict = rain.get("rain_week", {}).get("list") or {}
+            rain_month_dict = rain.get("rain_month", {}).get("list") or rain.get("monthly", {}).get("list") or {}
+            rain_year_dict = rain.get("rain_year", {}).get("list") or rain.get("yearly", {}).get("list") or {}
+
+            solar_dict = solar_data.get("solar", {}).get("list") or {}
+            uv_dict = solar_data.get("uvi", {}).get("list") or {}
 
             for timestamp_str, temp_f_val in temp_dict.items():
                 try:
                     dt = datetime.fromtimestamp(int(timestamp_str))
                     date_time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
 
-                    # Conversion Fahrenheit vers Celsius sans offset fixe
                     temp_c = round((float(temp_f_val) - 32.0) * 5.0 / 9.0, 2)
+                    humidity = int(float(hum_dict.get(timestamp_str, 0)))
 
-                    humidity = int(float(outdoor.get("humidity", {}).get("list", {}).get(timestamp_str, 0)))
-                    
-                    val_rel = pressure_data.get("relative", {}).get("list", {}).get(timestamp_str)
-                    if not val_rel:
-                        val_rel = pressure_data.get("baromrel", {}).get("list", {}).get(timestamp_str)
+                    val_rel = rel_pressure_dict.get(timestamp_str)
                     pressure = round(float(val_rel) * 33.8639, 1) if val_rel and float(val_rel) > 0 else 0.0
 
-                    wind_speed = round(float(wind.get("wind_speed", {}).get("list", {}).get(timestamp_str, 0)) * 1.60934, 1)
-                    wind_gust = round(float(wind.get("wind_gust", {}).get("list", {}).get(timestamp_str, 0)) * 1.60934, 1)
-                    wind_direction = int(float(wind.get("wind_direction", {}).get("list", {}).get(timestamp_str, 0)))
-                    rain_rate = round(float(rain.get("rain_rate", {}).get("list", {}).get(timestamp_str, 0)) * 25.4, 1)
-                    rain_day = round(float(rain.get("rain_day", {}).get("list", {}).get(timestamp_str, 0)) * 25.4, 1)
-                    rain_week = round(float(rain.get("rain_week", {}).get("list", {}).get(timestamp_str, 0)) * 25.4, 1)
+                    wind_speed = round(float(wind_speed_dict.get(timestamp_str, 0)) * 1.60934, 1)
+                    wind_gust = round(float(wind_gust_dict.get(timestamp_str, 0)) * 1.60934, 1)
+                    wind_direction = int(float(wind_dir_dict.get(timestamp_str, 0)))
                     
-                    val_month = rain.get("rain_month", {}).get("list", {}).get(timestamp_str) or rain.get("monthly", {}).get("list", {}).get(timestamp_str, 0)
-                    rain_month = round(float(val_month) * 25.4, 1)
-                    val_year = rain.get("rain_year", {}).get("list", {}).get(timestamp_str) or rain.get("yearly", {}).get("list", {}).get(timestamp_str, 0)
-                    rain_year = round(float(val_year) * 25.4, 1)
+                    rain_rate = round(float(rain_rate_dict.get(timestamp_str, 0)) * 25.4, 1)
+                    rain_day = round(float(rain_day_dict.get(timestamp_str, 0)) * 25.4, 1)
+                    rain_week = round(float(rain_week_dict.get(timestamp_str, 0)) * 25.4, 1)
+                    rain_month = round(float(rain_month_dict.get(timestamp_str, 0)) * 25.4, 1)
+                    rain_year = round(float(rain_year_dict.get(timestamp_str, 0)) * 25.4, 1)
 
-                    solar_radiation = float(solar_data.get("solar", {}).get("list", {}).get(timestamp_str, 0))
-                    uv = int(float(solar_data.get("uvi", {}).get("list", {}).get(timestamp_str, 0)))
+                    solar_radiation = float(solar_dict.get(timestamp_str, 0))
+                    uv = int(float(uv_dict.get(timestamp_str, 0)))
 
                     if -50 <= temp_c <= 60:
                         cursor.execute("""
