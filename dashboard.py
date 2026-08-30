@@ -163,6 +163,28 @@ def prevision_zambretti_avancee(pression_actuelle, delta_pression_3h, mois, dir_
     return text, tendance_txt, risque_orage
 
 
+def get_val_safe(dico, ts_str):
+    """Récupère une valeur d'un dictionnaire avec tolérance sur le timestamp (±300 secondes max)."""
+    if not dico:
+        return None
+    if ts_str in dico:
+        return dico[ts_str]
+    
+    # Recherche par proximité si la clé exacte n'existe pas
+    ts_int = int(ts_str)
+    best_key = None
+    min_diff = 300  # 5 minutes max de tolérance
+    for k in dico.keys():
+        try:
+            diff = abs(int(k) - ts_int)
+            if diff < min_diff:
+                min_diff = diff
+                best_key = k
+        except ValueError:
+            continue
+    return dico[best_key] if best_key else None
+
+
 def synchroniser_au_demarrage():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -215,38 +237,64 @@ def synchroniser_au_demarrage():
             solar_dict = solar_data.get("solar", {}).get("list") or {}
             uv_dict = solar_data.get("uvi", {}).get("list") or {}
 
-            for timestamp_str, temp_f_val in temp_dict.items():
+            # Regroupement de tous les timestamps uniques pour ne rien rater
+            all_timestamps = set(list(temp_dict.keys()) + list(hum_dict.keys()) + list(rel_pressure_dict.keys()))
+
+            for timestamp_str in sorted(all_timestamps):
                 try:
                     dt = datetime.fromtimestamp(int(timestamp_str))
                     date_time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
 
+                    temp_f_val = get_val_safe(temp_dict, timestamp_str)
+                    if temp_f_val is None:
+                        continue
                     temp_c = round((float(temp_f_val) - 32.0) * 5.0 / 9.0, 2)
-                    humidity = int(float(hum_dict.get(timestamp_str, 0)))
+                    if not (-50 <= temp_c <= 60):
+                        continue
 
-                    val_rel = rel_pressure_dict.get(timestamp_str)
+                    hum_val = get_val_safe(hum_dict, timestamp_str)
+                    humidity = int(float(hum_val)) if hum_val is not None else 0
+
+                    val_rel = get_val_safe(rel_pressure_dict, timestamp_str)
                     pressure = round(float(val_rel) * 33.8639, 1) if val_rel and float(val_rel) > 0 else 0.0
 
-                    wind_speed = round(float(wind_speed_dict.get(timestamp_str, 0)) * 1.60934, 1)
-                    wind_gust = round(float(wind_gust_dict.get(timestamp_str, 0)) * 1.60934, 1)
-                    wind_direction = int(float(wind_dir_dict.get(timestamp_str, 0)))
-                    
-                    rain_rate = round(float(rain_rate_dict.get(timestamp_str, 0)) * 25.4, 1)
-                    rain_day = round(float(rain_day_dict.get(timestamp_str, 0)) * 25.4, 1)
-                    rain_week = round(float(rain_week_dict.get(timestamp_str, 0)) * 25.4, 1)
-                    rain_month = round(float(rain_month_dict.get(timestamp_str, 0)) * 25.4, 1)
-                    rain_year = round(float(rain_year_dict.get(timestamp_str, 0)) * 25.4, 1)
+                    ws_val = get_val_safe(wind_speed_dict, timestamp_str)
+                    wind_speed = round(float(ws_val) * 1.60934, 1) if ws_val is not None else 0.0
 
-                    solar_radiation = float(solar_dict.get(timestamp_str, 0))
-                    uv = int(float(uv_dict.get(timestamp_str, 0)))
+                    wg_val = get_val_safe(wind_gust_dict, timestamp_str)
+                    wind_gust = round(float(wg_val) * 1.60934, 1) if wg_val is not None else 0.0
 
-                    if -50 <= temp_c <= 60:
-                        cursor.execute("""
-                            INSERT OR REPLACE INTO mesures (
-                                date_time, temp_c, humidity, pressure, wind_speed,
-                                wind_gust, wind_direction, rain_rate, rain_day,
-                                rain_week, rain_month, rain_year, solar_radiation, uv
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (date_time_str, temp_c, humidity, pressure, wind_speed, wind_gust, wind_direction, rain_rate, rain_day, rain_week, rain_month, rain_year, solar_radiation, uv))
+                    wd_val = get_val_safe(wind_dir_dict, timestamp_str)
+                    wind_direction = int(float(wd_val)) if wd_val is not None else 0
+
+                    rr_val = get_val_safe(rain_rate_dict, timestamp_str)
+                    rain_rate = round(float(rr_val) * 25.4, 1) if rr_val is not None else 0.0
+
+                    rd_val = get_val_safe(rain_day_dict, timestamp_str)
+                    rain_day = round(float(rd_val) * 25.4, 1) if rd_val is not None else 0.0
+
+                    rw_val = get_val_safe(rain_week_dict, timestamp_str)
+                    rain_week = round(float(rw_val) * 25.4, 1) if rw_val is not None else 0.0
+
+                    rm_val = get_val_safe(rain_month_dict, timestamp_str)
+                    rain_month = round(float(rm_val) * 25.4, 1) if rm_val is not None else 0.0
+
+                    ry_val = get_val_safe(rain_year_dict, timestamp_str)
+                    rain_year = round(float(ry_val) * 25.4, 1) if ry_val is not None else 0.0
+
+                    sol_val = get_val_safe(solar_dict, timestamp_str)
+                    solar_radiation = float(sol_val) if sol_val is not None else 0.0
+
+                    uv_val = get_val_safe(uv_dict, timestamp_str)
+                    uv = int(float(uv_val)) if uv_val is not None else 0
+
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO mesures (
+                            date_time, temp_c, humidity, pressure, wind_speed,
+                            wind_gust, wind_direction, rain_rate, rain_day,
+                            rain_week, rain_month, rain_year, solar_radiation, uv
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (date_time_str, temp_c, humidity, pressure, wind_speed, wind_gust, wind_direction, rain_rate, rain_day, rain_week, rain_month, rain_year, solar_radiation, uv))
                 except Exception:
                     continue
             conn.commit()
