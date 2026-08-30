@@ -207,7 +207,7 @@ def synchroniser_au_demarrage():
                 try:
                     dt = datetime.fromtimestamp(int(timestamp_str))
                     date_time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-                    temp_c = round((float(temp_f_val) - 32) * 5.0 / 9.0, 1)
+                    temp_c = round((float(temp_f_val) - 32.0) * 5.0 / 9.0, 2)
                     humidity = int(float(outdoor.get("humidity", {}).get("list", {}).get(timestamp_str, 0)))
                     
                     val_rel = pressure_data.get("relative", {}).get("list", {}).get(timestamp_str)
