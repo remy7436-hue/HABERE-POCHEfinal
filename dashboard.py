@@ -207,7 +207,14 @@ def synchroniser_au_demarrage():
                 try:
                     dt = datetime.fromtimestamp(int(timestamp_str))
                     date_time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-                    temp_c = round(((float(temp_f_val) - 32.0) * 5.0 / 9.0) + 1.0, 2)
+                    
+                    # Débogage brut API pour les logs
+                    print(f"DEBUG API - F: {temp_f_val}")
+
+                    # Conversion Fahrenheit vers Celsius avec offset de correction (-1.5 °C pour réaligner)
+                    temp_brute = (float(temp_f_val) - 32.0) * 5.0 / 9.0
+                    temp_c = round(temp_brute - 1.5, 2)
+
                     humidity = int(float(outdoor.get("humidity", {}).get("list", {}).get(timestamp_str, 0)))
                     
                     val_rel = pressure_data.get("relative", {}).get("list", {}).get(timestamp_str)
@@ -318,7 +325,7 @@ else:
     moy_mois_station = round(df_mois_actuel['temp_c'].mean(), 1) if len(df_mois_actuel) > 10 else derniere_mesure['temp_c']
     donnees_suffisantes = len(df_mois_actuel) > 10
 
-    # --- NOUVELLE ORGANISATION EN 5 ONGLETS ---
+    # --- ORGANISATION EN 5 ONGLETS ---
     tab_dashboard, tab_previ, tab_climat, tab_graph, tab_brutes = st.tabs([
         "📊 Tableau de Bord",
         "🔮 Prévisions & Risques",
@@ -371,7 +378,6 @@ else:
             st.write(f"* **Tendance humidité (3h) :** {delta_hum_3h:+d} %")
             st.write(f"* **Flux dominant :** {dir_card} ({dir_deg}°)")
 
-            # Alertes locales
             cart_temp_dew = round(derniere_mesure['temp_c'] - dew_point, 1)
             if derniere_mesure['temp_c'] <= 2.0:
                 st.error(f"❄️ **ALERTE GEL :** Température de {derniere_mesure['temp_c']}°C à 900m.")
@@ -440,7 +446,6 @@ else:
     with tab_graph:
         st.subheader("📈 Graphiques d'Évolution")
         
-        # Sélecteur de période pour éviter de surcharger l'affichage
         periode_choisie = st.radio("Sélectionner la période des graphiques :", ["24 heures", "48 heures", "7 jours"], horizontal=True)
         
         heures_map = {"24 heures": 24, "48 heures": 48, "7 jours": 24 * 7}
