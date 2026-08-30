@@ -328,10 +328,9 @@ def synchroniser_au_demarrage():
 
 synchroniser_au_demarrage()
 
-# --- Paramétrage des offsets dans la barre latérale ---
-st.sidebar.header("⚙️ Calibrage Capteurs")
-offset_temp = st.sidebar.slider("Offset Température (°C)", min_value=-5.0, max_value=5.0, value=-1.1, step=0.1, help="Permet d'ajuster l'écart avec la console officielle.")
-offset_hum = st.sidebar.slider("Offset Humidité (%)", min_value=-10, max_value=10, value=3, step=1, help="Permet d'ajuster l'écart d'humidité.")
+# --- Bouton de rafraîchissement manuel indispensable sur mobile ---
+if st.sidebar.button("🔄 Rafraîchir les données"):
+    st.rerun()
 
 st.title("🌤️ Suivi Météorologique Local")
 st.markdown(
@@ -340,7 +339,7 @@ st.markdown(
 )
 
 
-@st.cache_data(ttl=10)
+# Chargement direct sans cache pour éviter les blocages de session mobile
 def load_data():
     conn = sqlite3.connect(DB_FILE)
     df = pd.read_sql("SELECT * FROM mesures ORDER BY date_time DESC", conn)
@@ -356,10 +355,6 @@ df = load_data()
 if df.empty:
     st.warning("Aucune donnée pour l'instant.")
 else:
-    # Application des offsets de correction sur l'ensemble du DataFrame pour les graphiques et calculs
-    df["temp_c"] = round(df["temp_c"] + offset_temp, 1)
-    df["humidity"] = np.clip(df["humidity"] + offset_hum, 0, 100)
-
     derniere_mesure = df.iloc[0]
     dir_deg = derniere_mesure['wind_direction']
     dir_card = derniere_mesure['cardinal']
@@ -623,9 +618,3 @@ else:
     with tab_brutes:
         st.subheader("📁 Historique complet des mesures")
         st.dataframe(df, use_container_width=True)
-
- 
-
-
-        
- 
