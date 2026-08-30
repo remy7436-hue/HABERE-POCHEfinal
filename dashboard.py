@@ -13,10 +13,9 @@ try:
 except ImportError:
     plotly_disponible = False
 
-# --- Configuration de l'API Ecowitt ---
-APPLICATION_KEY = "9A10455F8BBE5DFFEA6E970BF213172D"
-API_KEY = "e7c7ac1f-9f8d-41b7-8d4e-ff02bafac937"
-MAC = "00:70:07:C2:E4:93"
+# --- Configuration Weather Underground ---
+WU_STATION_ID = "IHABRE19"
+WU_API_KEY = "7783683bcac243da83683bcac213da8d"
 DB_FILE = "meteo_historique.db"
 
 # --- Configuration Streamlit & Auto-refresh ---
@@ -163,29 +162,8 @@ def prevision_zambretti_avancee(pression_actuelle, delta_pression_3h, mois, dir_
     return text, tendance_txt, risque_orage
 
 
-def get_val_safe(dico, ts_str):
-    """Récupère une valeur d'un dictionnaire avec tolérance sur le timestamp (±300 secondes max)."""
-    if not dico:
-        return None
-    if ts_str in dico:
-        return dico[ts_str]
-    
-    # Recherche par proximité si la clé exacte n'existe pas
-    ts_int = int(ts_str)
-    best_key = None
-    min_diff = 300  # 5 minutes max de tolérance
-    for k in dico.keys():
-        try:
-            diff = abs(int(k) - ts_int)
-            if diff < min_diff:
-                min_diff = diff
-                best_key = k
-        except ValueError:
-            continue
-    return dico[best_key] if best_key else None
-
-
-def synchroniser_au_demarrage():
+def init_db_et_maj():
+    """Initialise la base SQLite et récupère la dernière observation de Weather Underground."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("""
@@ -200,117 +178,60 @@ def synchroniser_au_demarrage():
     """)
     conn.commit()
 
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=7)
-    url = "https://api.ecowitt.net/api/v3/device/history"
-    params = {
-        "application_key": APPLICATION_KEY, "api_key": API_KEY, "mac": MAC,
-        "start_date": start_date.strftime("%Y-%m-%d %H:%M:%S"),
-        "end_date": end_date.strftime("%Y-%m-%d %H:%M:%S"),
-        "call_back": "outdoor,wind,pressure,solar_and_uvi,rainfall",
-    }
+    # Appel de l'API Weather Underground (Données actuelles)
+    url = f"https://api.weather.com/v2/pws/observations/current?stationId={WU_STATION_ID}&format=json&units=m&apiKey={WU_API_KEY}"
     try:
-        response = requests.get(url, params=params, timeout=15)
-        result = response.json()
-        if result.get("code") == 0:
-            data = result.get("data", {})
-            outdoor = data.get("outdoor", {})
-            wind = data.get("wind", {})
-            pressure_data = data.get("pressure", {})
-            solar_data = data.get("solar_and_uvi", {})
-            rain = data.get("rainfall", {})
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if "observations" in data and len(data["observations"]) > 0:
+                obs = data["observations"][0]
+                
+                # Récupération de l'heure de l'observation WU ou heure locale actuelle
+                obs_time = datetime.now()
+                if "obsTimeLocal" in obs:
+                    try:
+                        obs_time = datetime.strptime(obs["obsTimeLocal"], "%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        pass
+                
+                date_time_str = obs_time.strftime("%Y-%m-%d %H:%M:%S")
+                metric = obs.get("metric", {})
 
-            temp_dict = outdoor.get("temperature", {}).get("list") or outdoor.get("temp", {}).get("list") or {}
-            hum_dict = outdoor.get("humidity", {}).get("list") or {}
-            rel_pressure_dict = pressure_data.get("relative", {}).get("list") or pressure_data.get("baromrel", {}).get("list") or {}
-            
-            wind_speed_dict = wind.get("wind_speed", {}).get("list") or {}
-            wind_gust_dict = wind.get("wind_gust", {}).get("list") or {}
-            wind_dir_dict = wind.get("wind_direction", {}).get("list") or {}
+                temp_c = float(metric.get("temp", 0.0))
+                humidity = int(obs.get("humidity", 0))
+                pressure = float(metric.get("pressure", 0.0))
+                wind_speed = float(metric.get("windSpeed", 0.0))
+                wind_gust = float(metric.get("windGust", 0.0))
+                wind_direction = int(obs.get("winddir", 0))
+                rain_rate = float(metric.get("precipRate", 0.0))
+                rain_day = float(metric.get("precipTotal", 0.0))
+                solar_radiation = float(obs.get("solarRadiation", 0.0))
+                uv = int(obs.get("uv", 0))
 
-            rain_rate_dict = rain.get("rain_rate", {}).get("list") or {}
-            rain_day_dict = rain.get("rain_day", {}).get("list") or {}
-            rain_week_dict = rain.get("rain_week", {}).get("list") or {}
-            rain_month_dict = rain.get("rain_month", {}).get("list") or rain.get("monthly", {}).get("list") or {}
-            rain_year_dict = rain.get("rain_year", {}).get("list") or rain.get("yearly", {}).get("list") or {}
-
-            solar_dict = solar_data.get("solar", {}).get("list") or {}
-            uv_dict = solar_data.get("uvi", {}).get("list") or {}
-
-            # Regroupement de tous les timestamps uniques pour ne rien rater
-            all_timestamps = set(list(temp_dict.keys()) + list(hum_dict.keys()) + list(rel_pressure_dict.keys()))
-
-            for timestamp_str in sorted(all_timestamps):
-                try:
-                    dt = datetime.fromtimestamp(int(timestamp_str))
-                    date_time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-
-                    temp_f_val = get_val_safe(temp_dict, timestamp_str)
-                    if temp_f_val is None:
-                        continue
-                    temp_c = round((float(temp_f_val) - 32.0) * 5.0 / 9.0, 2)
-                    if not (-50 <= temp_c <= 60):
-                        continue
-
-                    hum_val = get_val_safe(hum_dict, timestamp_str)
-                    humidity = int(float(hum_val)) if hum_val is not None else 0
-
-                    val_rel = get_val_safe(rel_pressure_dict, timestamp_str)
-                    pressure = round(float(val_rel) * 33.8639, 1) if val_rel and float(val_rel) > 0 else 0.0
-
-                    ws_val = get_val_safe(wind_speed_dict, timestamp_str)
-                    wind_speed = round(float(ws_val) * 1.60934, 1) if ws_val is not None else 0.0
-
-                    wg_val = get_val_safe(wind_gust_dict, timestamp_str)
-                    wind_gust = round(float(wg_val) * 1.60934, 1) if wg_val is not None else 0.0
-
-                    wd_val = get_val_safe(wind_dir_dict, timestamp_str)
-                    wind_direction = int(float(wd_val)) if wd_val is not None else 0
-
-                    rr_val = get_val_safe(rain_rate_dict, timestamp_str)
-                    rain_rate = round(float(rr_val) * 25.4, 1) if rr_val is not None else 0.0
-
-                    rd_val = get_val_safe(rain_day_dict, timestamp_str)
-                    rain_day = round(float(rd_val) * 25.4, 1) if rd_val is not None else 0.0
-
-                    rw_val = get_val_safe(rain_week_dict, timestamp_str)
-                    rain_week = round(float(rw_val) * 25.4, 1) if rw_val is not None else 0.0
-
-                    rm_val = get_val_safe(rain_month_dict, timestamp_str)
-                    rain_month = round(float(rm_val) * 25.4, 1) if rm_val is not None else 0.0
-
-                    ry_val = get_val_safe(rain_year_dict, timestamp_str)
-                    rain_year = round(float(ry_val) * 25.4, 1) if ry_val is not None else 0.0
-
-                    sol_val = get_val_safe(solar_dict, timestamp_str)
-                    solar_radiation = float(sol_val) if sol_val is not None else 0.0
-
-                    uv_val = get_val_safe(uv_dict, timestamp_str)
-                    uv = int(float(uv_val)) if uv_val is not None else 0
-
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO mesures (
-                            date_time, temp_c, humidity, pressure, wind_speed,
-                            wind_gust, wind_direction, rain_rate, rain_day,
-                            rain_week, rain_month, rain_year, solar_radiation, uv
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (date_time_str, temp_c, humidity, pressure, wind_speed, wind_gust, wind_direction, rain_rate, rain_day, rain_week, rain_month, rain_year, solar_radiation, uv))
-                except Exception:
-                    continue
-            conn.commit()
+                # Insertion ou mise à jour si la minute existe déjà
+                cursor.execute("""
+                    INSERT OR REPLACE INTO mesures (
+                        date_time, temp_c, humidity, pressure, wind_speed,
+                        wind_gust, wind_direction, rain_rate, rain_day,
+                        rain_week, rain_month, rain_year, solar_radiation, uv
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0.0, 0.0, ?, ?)
+                """, (date_time_str, temp_c, humidity, pressure, wind_speed, wind_gust, wind_direction, rain_rate, rain_day, solar_radiation, uv))
+                conn.commit()
     except Exception as e:
-        print(f"⚠️ Erreur sync cloud : {e}")
+        print(f"⚠️ Erreur sync Weather Underground : {e}")
     finally:
         conn.close()
 
 
-synchroniser_au_demarrage()
+# Exécution de la synchro à chaque chargement / refresh de la page
+init_db_et_maj()
 
 if st.sidebar.button("🔄 Rafraîchir les données"):
     st.rerun()
 
 st.title("🌤️ Suivi Météorologique Local")
-st.markdown("Station Ecowitt (GW3000) • Habère-Poche (900 m)")
+st.markdown("Station Ecowitt (GW3000) • Habère-Poche (900 m) • Flux Weather Underground (IHABRE19)")
 
 
 def load_data():
@@ -401,7 +322,7 @@ else:
         u1.metric("Indice UV", uv_actuel, delta=uv_niveau)
         u2.metric("Rayonnement", f"{derniere_mesure['solar_radiation']} W/m²")
         u3.metric("Pluie glissante (24h)", f"{pluie_24h_glissante} mm")
-        u4.metric("Pluie du mois", f"{derniere_mesure['rain_month']} mm")
+        u4.metric("Pluie du mois", f"{derniere_mesure.get('rain_month', 0.0)} mm")
 
         if uv_actuel >= 3:
             recos_str = " • ".join([f"**{r}**" for r in uv_recos])
