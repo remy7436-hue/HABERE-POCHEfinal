@@ -358,7 +358,7 @@ else:
         Vous pouvez visualiser l'arrivée des perturbations à grande échelle et zoomer sur la Haute-Savoie.
         """)
 
-        # Intégration du widget Windy avec la syntaxe st.iframe corrigée
+        # Intégration corrigée avec st.components.v1.html
         windy_html = """
         <div style="width: 100%; height: 600px; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.2); background: #0e1117;">
             <iframe src="https://embed.windy.com/embed2.html?lat=46.250&lon=6.433&detailLat=46.250&detailLon=6.433&width=650&height=450&zoom=9&level=surface&overlay=rain&product=ecmwf&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1"
@@ -368,7 +368,7 @@ else:
             </iframe>
         </div>
         """
-        st.iframe(windy_html, height=620)
+        st.components.v1.html(windy_html, height=620)
 
         st.markdown("---")
         col_btn1, col_btn2 = st.columns(2)
