@@ -358,7 +358,6 @@ else:
         Vous pouvez visualiser l'arrivée des perturbations à grande échelle et zoomer sur la Haute-Savoie.
         """)
 
-        # Intégration corrigée avec st.components.v1.html
         windy_html = """
         <div style="width: 100%; height: 600px; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.2); background: #0e1117;">
             <iframe src="https://embed.windy.com/embed2.html?lat=46.250&lon=6.433&detailLat=46.250&detailLon=6.433&width=650&height=450&zoom=9&level=surface&overlay=rain&product=ecmwf&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1"
@@ -497,7 +496,7 @@ else:
             st.line_chart(df_graphe.set_index("date_time")[["wind_speed", "wind_gust"]])
         with g4:
             st.markdown("### Rayonnement Solaire (W/m²)")
-            st.line_chart(df_graphe.set_index("date_time")[["solar_radiation"]])
+            st.line_chart(df_graphe.set_index("date_time")["solar_radiation"])
 
     with tab_brutes:
         st.subheader("📁 Historique complet des mesures")
