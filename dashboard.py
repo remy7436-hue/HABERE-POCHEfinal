@@ -13,22 +13,18 @@ try:
 except ImportError:
     plotly_disponible = False
 
-# --- Configuration Weather Underground ---
 WU_STATION_ID = "IHABRE19"
 WU_API_KEY = "7783683bcac243da83683bcac213da8d"
 DB_FILE = "meteo_historique.db"
 
-# --- Configuration Streamlit & Auto-refresh ---
 st.set_page_config(
     page_title="Météo Habère-Poche", page_icon="🌤️", layout="wide"
 )
 
-# Actualisation automatique toutes les 60 secondes
 st_autorefresh(interval=60000, key="meteo_autorefresh")
 
 
 def degre_vers_cardinal(degre):
-    """Convertit un angle en degrés en point cardinal."""
     if degre is None:
         return "N/A"
     directions = [
@@ -40,7 +36,6 @@ def degre_vers_cardinal(degre):
 
 
 def calculer_point_rosee(temp_c, humidity):
-    """Calcule approximativement le point de rosée (°C) (Formule de Magnus-Tetens)."""
     if humidity <= 0 or humidity > 100:
         return temp_c
     a = 17.27
@@ -51,7 +46,6 @@ def calculer_point_rosee(temp_c, humidity):
 
 
 def calculer_et0_simplifie(temp_c, wind_speed, humidity, solar_rad):
-    """Estime l'évapotranspiration potentielle journalière simplifiée (mm/jour)."""
     temp_factor = max(0, temp_c + 5)
     wind_factor = 1 + (wind_speed / 15.0)
     humidity_factor = max(0.1, (100 - humidity) / 50.0)
@@ -61,7 +55,6 @@ def calculer_et0_simplifie(temp_c, wind_speed, humidity, solar_rad):
 
 
 def analyser_indice_uv(uv):
-    """Analyse l'indice UV et retourne un niveau, une couleur et des recommandations adaptées."""
     if uv <= 2:
         return "Faible 🟢", "Pas de protection particulière nécessaire.", []
     elif uv <= 5:
@@ -75,7 +68,6 @@ def analyser_indice_uv(uv):
 
 
 def calculer_phase_lune(dt: datetime):
-    """Calcule de manière précise la phase de la lune."""
     year, month, day = dt.year, dt.month, dt.day
     if month <= 2:
         year -= 1
@@ -112,7 +104,6 @@ def calculer_phase_lune(dt: datetime):
 
 
 def prevision_zambretti_avancee(pression_actuelle, delta_pression_3h, mois, dir_cardinal, solar_rad, humidity, temp_c, delta_hum_3h):
-    """Algorithme de Zambretti enrichi pour la montagne."""
     p_mer = pression_actuelle * pow(1.0 - (0.0065 * 900.0) / (15.0 + 0.0065 * 900.0 + 273.15), -5.257)
     is_summer = mois in [4, 5, 6, 7, 8, 9]
 
@@ -163,7 +154,6 @@ def prevision_zambretti_avancee(pression_actuelle, delta_pression_3h, mois, dir_
 
 
 def init_db_et_maj():
-    """Initialise la base SQLite et récupère la dernière observation de Weather Underground."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("""
@@ -185,7 +175,6 @@ def init_db_et_maj():
             data = response.json()
             if "observations" in data and len(data["observations"]) > 0:
                 obs = data["observations"][0]
-
                 obs_time = datetime.now()
                 if "obsTimeLocal" in obs:
                     try:
@@ -316,7 +305,6 @@ else:
     else:
         moy_mois_station = round(df_mois_actuel['temp_c'].mean(), 1) if not df_mois_actuel.empty else derniere_mesure['temp_c']
 
-    # --- Organisation des Onglets ---
     tab_dashboard, tab_radar, tab_previ, tab_climat, tab_graph, tab_brutes = st.tabs([
         "📊 Tableau de Bord",
         "📡 Radar & Anticipation (Windy)",
@@ -358,11 +346,10 @@ else:
         Vous pouvez visualiser l'arrivée des perturbations à grande échelle et zoomer sur la Haute-Savoie.
         """)
 
-        # Utilisation de la fonction native st.iframe recommandée
+        # Utilisation de la fonction native st.iframe compatible (sans l'argument scrolling)
         st.iframe(
             "https://embed.windy.com/embed2.html?lat=46.250&lon=6.433&detailLat=46.250&detailLon=6.433&width=650&height=550&zoom=9&level=surface&overlay=rain&product=ecmwf&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1",
-            height=600,
-            scrolling=False
+            height=600
         )
 
         st.markdown("---")
@@ -419,7 +406,7 @@ else:
                                              angularaxis=dict(direction="clockwise", rotation=90,
                                                               tickvals=[0, 45, 90, 135, 180, 225, 270, 315],
                                                               ticktext=['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'])))
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, use_container_width=True)
 
     with tab_climat:
         st.subheader("🌱 Climatologie, Jardin & Astronomie")
@@ -482,7 +469,7 @@ else:
             if plotly_disponible:
                 fig_p = px.line(df_graphe, x="date_time", y="pressure", template="plotly_dark")
                 fig_p.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=10, t=10, b=10))
-                st.plotly_chart(fig_p, width="stretch")
+                st.plotly_chart(fig_p, use_container_width=True)
             else:
                 st.line_chart(df_graphe.set_index("date_time")["pressure"])
 
@@ -496,4 +483,4 @@ else:
 
     with tab_brutes:
         st.subheader("📁 Historique complet des mesures")
-        st.dataframe(df, width="stretch")
+        st.dataframe(df, use_container_width=True)
