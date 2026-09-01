@@ -422,7 +422,7 @@ else:
                                              angularaxis=dict(direction="clockwise", rotation=90,
                                                               tickvals=[0, 45, 90, 135, 180, 225, 270, 315],
                                                               ticktext=['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'])))
-                st.plotly_chart(fig, width='stretch')
+                st.plotly_chart(fig, use_container_width=True)
 
     with tab_climat:
         st.subheader("🌱 Climatologie, Jardin & Astronomie")
@@ -485,7 +485,7 @@ else:
             if plotly_disponible:
                 fig_p = px.line(df_graphe, x="date_time", y="pressure", template="plotly_dark")
                 fig_p.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=10, t=10, b=10))
-                st.plotly_chart(fig_p, width='stretch')
+                st.plotly_chart(fig_p, use_container_width=True)
             else:
                 st.line_chart(df_graphe.set_index("date_time")["pressure"])
 
@@ -499,4 +499,4 @@ else:
 
     with tab_brutes:
         st.subheader("📁 Historique complet des mesures")
-        st.dataframe(df, width='stretch')
+        st.dataframe(df, use_container_width=True)
