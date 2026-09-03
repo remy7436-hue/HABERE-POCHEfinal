@@ -45,6 +45,16 @@ def calculer_point_rosee(temp_c, humidity):
     return round(dew_point, 1)
 
 
+def calculer_base_cumulus(temp_c, dew_point):
+    # Formule standard basée sur l'écart T - Td (altitude station = 900m)
+    ecart = temp_c - dew_point
+    if ecart < 0:
+        ecart = 0
+    hauteur_relative_m = (ecart / 2.5) * 1000
+    altitude_absolue_m = 900 + hauteur_relative_m
+    return int(altitude_absolue_m), round(hauteur_relative_m, 0)
+
+
 def calculer_et0_simplifie(temp_c, wind_speed, humidity, solar_rad):
     temp_factor = max(0, temp_c + 5)
     wind_factor = 1 + (wind_speed / 15.0)
@@ -242,13 +252,13 @@ else:
 
     pluie_jour = derniere_mesure.get('rain_day', 0.0)
     df['date_dt'] = pd.to_datetime(df['date_time'])
-    df_mois_en_cours = df[
-        (df['date_dt'].dt.year == current_time.year) &
-        (df['date_dt'].dt.month == current_time.month)
-    ]
 
+    # Calculs pluviométriques
     PLUIE_BASE_MOIS = 66.0
     pluie_mois = round(PLUIE_BASE_MOIS + pluie_jour, 1)
+
+    PLUIE_BASE_ANNEE = 1150.0  # Base climatique indicative à 900m en Haute-Savoie
+    pluie_annee = round(PLUIE_BASE_ANNEE + pluie_mois, 1)
 
     target_1h = current_time - timedelta(hours=1)
     df_temp_1h = df_sorted.copy()
@@ -275,7 +285,7 @@ else:
     df_temp_3h = df_sorted.copy()
     df_temp_3h['diff_3h'] = (df_temp_3h['date_time'] - target_3h).abs()
     row_3h = df_temp_3h.loc[df_temp_3h['diff_3h'].idxmin()] if not df_temp_3h.empty else None
-    
+
     delta_press_3h = (
         round(derniere_mesure['pressure'] - row_3h['pressure'], 1)
         if row_3h is not None and row_3h['diff_3h'] <= timedelta(minutes=45)
@@ -294,6 +304,10 @@ else:
     max_gust_row = df_24h.loc[df_24h['wind_gust'].idxmax()]
     max_wind_row = df_24h.loc[df_24h['wind_speed'].idxmax()]
     dew_point = calculer_point_rosee(derniere_mesure['temp_c'], derniere_mesure['humidity'])
+    
+    # Calcul de la base des cumulus
+    alt_cumulus_abs, hauteur_cumulus_rel = calculer_base_cumulus(derniere_mesure['temp_c'], dew_point)
+
     et0_jour = calculer_et0_simplifie(derniere_mesure['temp_c'], derniere_mesure['wind_speed'], derniere_mesure['humidity'], derniere_mesure['solar_radiation'])
     pluie_24h_glissante = round(df_24h['rain_day'].max() - df_24h['rain_day'].min(), 1) if not df_24h.empty else derniere_mesure['rain_day']
 
@@ -316,10 +330,7 @@ else:
 
     df_mois_actuel = df_sorted[(df_sorted['date_time'].dt.year == current_time.year) & (df_sorted['date_time'].dt.month == mois_actuel)]
     calcul_fiable = len(df_mois_actuel) >= 24
-    if calcul_fiable:
-        moy_mois_station = round(df_mois_actuel['temp_c'].mean(), 1)
-    else:
-        moy_mois_station = round(df_mois_actuel['temp_c'].mean(), 1) if not df_mois_actuel.empty else derniere_mesure['temp_c']
+    moy_mois_station = round(df_mois_actuel['temp_c'].mean(), 1) if not df_mois_actuel.empty else derniere_mesure['temp_c']
 
     tab_dashboard, tab_radar, tab_previ, tab_climat, tab_graph, tab_brutes = st.tabs([
         "📊 Tableau de Bord",
@@ -359,23 +370,12 @@ else:
         st.subheader("📡 Radar Prévisionnel & Cartes d'Animation (Windy)")
         st.markdown("""
         Ce widget officiel **Windy** intègre directement la simulation interactive des précipitations et des masses d'air sur plusieurs jours.
-        Vous pouvez visualiser l'arrivée des perturbations à grande échelle et zoomer sur la Haute-Savoie.
         """)
 
         st.iframe(
             "https://embed.windy.com/embed2.html?lat=46.250&lon=6.433&detailLat=46.250&detailLon=6.433&width=650&height=550&zoom=9&level=surface&overlay=rain&product=ecmwf&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1",
             height=600
         )
-
-        st.markdown("---")
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            st.markdown("### 🌐 Mode Plein Écran")
-            st.markdown("Pour un confort d'analyse maximal sur grand écran avec toutes les couches météo :")
-            st.link_button("Ouvrir Windy en plein écran", "https://www.windy.com/46.250/6.433?rain,46.000,6.433,9")
-        with col_btn2:
-            st.markdown("### 💡 Astuce de prévision locale")
-            st.info("Utilisez le curseur temporel en bas du widget Windy pour faire défiler les prévisions heure par heure et voir précisément quand la pluie touchera Habère-Poche.")
 
     with tab_previ:
         st.subheader("🔮 Bulletin Prévisionnel & Analyse des Risques")
@@ -395,14 +395,15 @@ else:
             st.write(f"* **Tendance barométrique (3h) :** {z_trend} ({delta_press_3h:+.1f} hPa)")
             st.write(f"* **Tendance humidité (3h) :** {delta_hum_3h:+d} %")
             st.write(f"* **Flux dominant :** {dir_card} ({dir_deg}°)")
+            st.write(f"* **Estimation base des cumulus :** ~{alt_cumulus_abs} m d'altitude (+{int(hauteur_cumulus_rel)}m au-dessus de la station)")
 
             cart_temp_dew = round(derniere_mesure['temp_c'] - dew_point, 1)
             if derniere_mesure['temp_c'] <= 2.0:
                 st.error(f"❄️ **ALERTE GEL :** Température de {derniere_mesure['temp_c']}°C à 900m.")
             if cart_temp_dew < 1.5 and derniere_mesure['humidity'] > 88:
                 st.warning(f"🌫️ **ALERTE BROUILLARD :** Écart air/rosée critique ({cart_temp_dew}°C).")
-            if risque_orage:
-                st.warning("⚡ **Alerte Convective :** Risque de développement orageux diurne sur les reliefs.")
+            if hauteur_cumulus_rel < 300:
+                st.warning("☁️ **Plafond bas :** Les nuages accrochent les crêtes (base < 300m sol).")
 
         with p2:
             st.markdown("### 🧭 Rose des Vents (7j)")
@@ -431,41 +432,22 @@ else:
             st.markdown("### 🌡️ Bilan Thermique du Mois")
             if calcul_fiable:
                 diff_normale = round(moy_mois_station - normale_saison, 1)
-                st.metric("Moyenne du mois", f"{moy_mois_station} °C", delta=f"{diff_normale:+.1f} °C vs normale ({normale_saison}°C)")
-                if abs(diff_normale) <= 0.5:
-                    st.success("✅ Températures conformes aux normales de saison.")
-                elif diff_normale > 0.5:
-                    st.warning(f"🌡️ Tendance mensuelle plus douce (+{diff_normale}°C).")
-                else:
-                    st.info(f"❄️ Tendance mensuelle plus fraîche ({diff_normale}°C).")
+                st.metric("Moyenne du mois", f"{moy_mois_station} °C", delta=f"{diff_normale:+.1f} °C vs normale")
             else:
-                st.info("💡 Accumulation des données en cours pour ce mois (moins de 24h de mesures).")
+                st.info("💡 Accumulation des données en cours pour ce mois.")
                 st.write(f"* **Normale de saison :** `{normale_saison} °C`")
 
             st.markdown("### 💧 Suivi de l'Évaporation")
             st.metric("Évapotranspiration (ET0)", f"{et0_jour} mm/j", help="Indice d'assèchement du sol et des plantes")
 
         with c_col2:
-            st.markdown("### 🌧️ Bilan Pluviométrique du Mois")
-            diff_pluie = round(pluie_mois - normale_pluie_mois, 1)
-            st.metric("Cumul mensuel estimé", f"{pluie_mois} mm", delta=f"{diff_pluie:+.1f} mm vs normale (~{normale_pluie_mois}mm)")
+            st.markdown("### 🌧️ Bilan Pluviométrique")
+            p_m1, p_m2 = st.columns(2)
+            p_m1.metric("Cumul mensuel", f"{pluie_mois} mm")
+            p_m2.metric("Cumul annuel", f"{pluie_annee} mm")
 
             st.markdown("### 🌙 Calendrier Lunaire")
             st.metric(f"{lune_icone} {lune_phase}", f"Illumination {lune_illum}%")
-
-            lune_cols = st.columns(5)
-            for i, offset in enumerate(range(-2, 3)):
-                futur_dt = current_time + timedelta(days=offset)
-                f_phase, f_icone_j, _, f_illum_j = calculer_phase_lune(futur_dt)
-                label_jour = "Aujourd'hui" if offset == 0 else futur_dt.strftime("%d/%m")
-                with lune_cols[i]:
-                    st.markdown(f"""
-                        <div style='text-align: center; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 8px;'>
-                            <b style='font-size: 0.85em;'>{label_jour}</b><br>
-                            <span style='font-size: 24px;'>{f_icone_j}</span><br>
-                            <small>{f_illum_j}%</small>
-                        </div>
-                    """, unsafe_allow_html=True)
 
     with tab_graph:
         st.subheader("📈 Graphiques d'Évolution")
