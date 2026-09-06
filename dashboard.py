@@ -21,7 +21,8 @@ st.set_page_config(
     page_title="Météo Habère-Poche", page_icon="🌤️", layout="wide"
 )
 
-st_autorefresh(interval=60000, key="meteo_autorefresh")
+# Rafraîchissement toutes les 5 minutes (300 000 ms) pour s'aligner sur la station
+st_autorefresh(interval=300000, key="meteo_autorefresh")
 
 
 def degre_vers_cardinal(degre):
@@ -46,7 +47,6 @@ def calculer_point_rosee(temp_c, humidity):
 
 
 def calculer_base_cumulus(temp_c, dew_point):
-    # Formule standard basée sur l'écart T - Td (altitude station = 900m)
     ecart = temp_c - dew_point
     if ecart < 0:
         ecart = 0
@@ -206,14 +206,24 @@ def init_db_et_maj():
                 solar_radiation = float(obs.get("solarRadiation", 0.0))
                 uv = int(obs.get("uv", 0))
 
-                cursor.execute("""
-                    INSERT OR REPLACE INTO mesures (
-                        date_time, temp_c, humidity, pressure, wind_speed,
-                        wind_gust, wind_direction, rain_rate, rain_day,
-                        rain_week, rain_month, rain_year, solar_radiation, uv
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0.0, 0.0, ?, ?)
-                """, (date_time_str, temp_c, humidity, pressure, wind_speed, wind_gust, wind_direction, rain_rate, rain_day, solar_radiation, uv))
-                conn.commit()
+                cursor.execute("SELECT date_time FROM mesures ORDER BY date_time DESC LIMIT 1")
+                derniere_ligne = cursor.fetchone()
+
+                inserer = True
+                if derniere_ligne:
+                    derniere_dt = datetime.strptime(derniere_ligne[0], "%Y-%m-%d %H:%M:%S")
+                    if (obs_time - derniere_dt) < timedelta(minutes=4):
+                        inserer = False
+
+                if inserer:
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO mesures (
+                            date_time, temp_c, humidity, pressure, wind_speed,
+                            wind_gust, wind_direction, rain_rate, rain_day,
+                            rain_week, rain_month, rain_year, solar_radiation, uv
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0.0, 0.0, ?, ?)
+                    """, (date_time_str, temp_c, humidity, pressure, wind_speed, wind_gust, wind_direction, rain_rate, rain_day, solar_radiation, uv))
+                    conn.commit()
     except Exception as e:
         print(f"⚠️ Erreur sync Weather Underground : {e}")
     finally:
@@ -222,7 +232,17 @@ def init_db_et_maj():
 
 init_db_et_maj()
 
+st.sidebar.markdown("### ⚙️ Commandes")
 if st.sidebar.button("🔄 Rafraîchir les données"):
+    st.rerun()
+
+if st.sidebar.button("🗑️ Vider l'historique de la base"):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM mesures")
+    conn.commit()
+    conn.close()
+    st.sidebar.success("Base purgée avec succès !")
     st.rerun()
 
 st.title("🌤️ Suivi Météorologique Local")
@@ -242,7 +262,7 @@ def load_data():
 df = load_data()
 
 if df.empty:
-    st.warning("Aucune donnée disponible pour l'instant.")
+    st.warning("Aucune donnée disponible pour l'instant. Cliquez sur 'Rafraîchir les données' pour lancer une première acquisition.")
 else:
     derniere_mesure = df.iloc[0]
     dir_deg = derniere_mesure['wind_direction']
@@ -253,12 +273,19 @@ else:
     pluie_jour = derniere_mesure.get('rain_day', 0.0)
     df['date_dt'] = pd.to_datetime(df['date_time'])
 
-    # Calculs pluviométriques
     PLUIE_BASE_MOIS = 66.0
     pluie_mois = round(PLUIE_BASE_MOIS + pluie_jour, 1)
 
-    PLUIE_BASE_ANNEE = 1150.0  # Base climatique indicative à 900m en Haute-Savoie
-    pluie_annee = round(PLUIE_BASE_ANNEE + pluie_mois, 1)
+    conn_db = sqlite3.connect(DB_FILE)
+    cursor_db = conn_db.cursor()
+    annee_courante = current_time.year
+    cursor_db.execute(
+        "SELECT SUM(rain_day) FROM mesures WHERE strftime('%Y', date_time) = ?",
+        (str(annee_courante),)
+    )
+    res_pluie_annee = cursor_db.fetchone()[0]
+    conn_db.close()
+    pluie_annee = round(res_pluie_annee if res_pluie_annee else pluie_mois, 1)
 
     target_1h = current_time - timedelta(hours=1)
     df_temp_1h = df_sorted.copy()
@@ -304,8 +331,7 @@ else:
     max_gust_row = df_24h.loc[df_24h['wind_gust'].idxmax()]
     max_wind_row = df_24h.loc[df_24h['wind_speed'].idxmax()]
     dew_point = calculer_point_rosee(derniere_mesure['temp_c'], derniere_mesure['humidity'])
-    
-    # Calcul de la base des cumulus
+
     alt_cumulus_abs, hauteur_cumulus_rel = calculer_base_cumulus(derniere_mesure['temp_c'], dew_point)
 
     et0_jour = calculer_et0_simplifie(derniere_mesure['temp_c'], derniere_mesure['wind_speed'], derniere_mesure['humidity'], derniere_mesure['solar_radiation'])
@@ -321,12 +347,6 @@ else:
         7: 18.0, 8: 17.5, 9: 13.0, 10: 8.5, 11: 3.0, 12: 0.0
     }
     normale_saison = normales_ref.get(mois_actuel, 15.0)
-
-    normales_pluie_ref = {
-        1: 90.0, 2: 80.0, 3: 95.0, 4: 110.0, 5: 130.0, 6: 140.0,
-        7: 130.0, 8: 140.0, 9: 115.0, 10: 100.0, 11: 100.0, 12: 95.0
-    }
-    normale_pluie_mois = normales_pluie_ref.get(mois_actuel, 100.0)
 
     df_mois_actuel = df_sorted[(df_sorted['date_time'].dt.year == current_time.year) & (df_sorted['date_time'].dt.month == mois_actuel)]
     calcul_fiable = len(df_mois_actuel) >= 24
@@ -417,12 +437,12 @@ else:
                 fig = px.bar_polar(rose_df, r='count', theta='dir_sector', color='vitesse_tranche',
                                    color_discrete_sequence=px.colors.sequential.Plasma_r, template="plotly_dark")
                 fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                                  margin=dict(l=10, r=10, t=10, b=10),
+                                  margin=dict(l=20, r=20, t=20, b=20),
                                   polar=dict(bgcolor='rgba(0,0,0,0)', radialaxis=dict(showticklabels=False),
                                              angularaxis=dict(direction="clockwise", rotation=90,
                                                               tickvals=[0, 45, 90, 135, 180, 225, 270, 315],
                                                               ticktext=['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'])))
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, use_container_width=True)
 
     with tab_climat:
         st.subheader("🌱 Climatologie, Jardin & Astronomie")
@@ -460,24 +480,52 @@ else:
         g1, g2 = st.columns(2)
         with g1:
             st.markdown("### Température (°C)")
-            st.line_chart(df_graphe.set_index("date_time")["temp_c"])
+            if plotly_disponible and not df_graphe.empty:
+                fig_t = px.line(df_graphe, x="date_time", y="temp_c", template="plotly_dark")
+                fig_t.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=30, r=10, t=10, b=10))
+                st.plotly_chart(fig_t, use_container_width=True)
+            else:
+                st.line_chart(df_graphe.set_index("date_time")["temp_c"])
+
         with g2:
             st.markdown("### Pression (hPa)")
-            if plotly_disponible:
+            if plotly_disponible and not df_graphe.empty:
                 fig_p = px.line(df_graphe, x="date_time", y="pressure", template="plotly_dark")
-                fig_p.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=10, t=10, b=10))
-                st.plotly_chart(fig_p, width="stretch")
+                fig_p.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=30, r=10, t=10, b=10))
+                st.plotly_chart(fig_p, use_container_width=True)
             else:
                 st.line_chart(df_graphe.set_index("date_time")["pressure"])
 
         g3, g4 = st.columns(2)
         with g3:
-            st.markdown("### Vent (km/h)")
-            st.line_chart(df_graphe.set_index("date_time")[["wind_speed", "wind_gust"]])
+            st.markdown("### Humidité (%)")
+            if plotly_disponible and not df_graphe.empty:
+                fig_h = px.line(df_graphe, x="date_time", y="humidity", template="plotly_dark")
+                fig_h.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=30, r=10, t=10, b=10))
+                st.plotly_chart(fig_h, use_container_width=True)
+            else:
+                st.line_chart(df_graphe.set_index("date_time")["humidity"])
+
         with g4:
+            st.markdown("### Vent (km/h)")
+            if plotly_disponible and not df_graphe.empty:
+                df_wind = df_graphe.rename(columns={"wind_speed": "Vent moyen", "wind_gust": "Rafales"})
+                fig_v = px.line(df_wind, x="date_time", y=["Vent moyen", "Rafales"], template="plotly_dark")
+                fig_v.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=30, r=10, t=10, b=10), legend_title_text='')
+                st.plotly_chart(fig_v, use_container_width=True)
+            else:
+                st.line_chart(df_graphe.set_index("date_time")[["wind_speed", "wind_gust"]])
+
+        g5, _ = st.columns(2)
+        with g5:
             st.markdown("### Rayonnement Solaire (W/m²)")
-            st.line_chart(df_graphe.set_index("date_time")["solar_radiation"])
+            if plotly_disponible and not df_graphe.empty:
+                fig_s = px.line(df_graphe, x="date_time", y="solar_radiation", template="plotly_dark")
+                fig_s.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=30, r=10, t=10, b=10))
+                st.plotly_chart(fig_s, use_container_width=True)
+            else:
+                st.line_chart(df_graphe.set_index("date_time")["solar_radiation"])
 
     with tab_brutes:
         st.subheader("📁 Historique complet des mesures")
-        st.dataframe(df, width="stretch")
+        st.dataframe(df, use_container_width=True)
