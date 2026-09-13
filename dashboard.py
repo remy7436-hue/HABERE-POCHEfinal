@@ -123,6 +123,32 @@ def prevision_zambretti(pression_hpa, tendance_hpa_par_heure):
         else: return "🌧️ Temps pluvieux et maussade persistant"
 
 
+def interpreter_vent_local(degres, vitesse_kmh):
+    if degres is None or pd.isna(degres):
+        v = vitesse_kmh if vitesse_kmh is not None else 0
+        if v < 2:
+            return "Calme plat / Vent variable", "💤"
+        return "Direction indéterminée", "❓"
+
+    deg = float(degres)
+    v = vitesse_kmh if vitesse_kmh is not None else 0
+
+    if v < 3:
+        return "Calme (insensible)", "💤"
+
+    # Découpage par secteurs cardinaux larges adaptés au relief
+    if 315 <= deg <= 360 or 0 <= deg < 45:
+        return "Bise / Vent de Nord : Temps généralement plus sec, assèchement, fraîcheur.", "🌬️"
+    elif 45 <= deg < 135:
+        return "Vent d'Est / Sud-Est : Flux continental, souvent stable ou prélude à un changement de temps.", "🌤️"
+    elif 135 <= deg < 225:
+        return "Vent du Sud / Sud-Ouest : Flux perturbé doux, souvent annonciateur d'une dégradation (pluie, orages en saison chaude).", "⛈️"
+    elif 225 <= deg < 315:
+        return "Vent d'Ouest / Nord-Ouest : Flux de traîne ou front d'occlusion, passages nuageux et averses probables.", "🌧️"
+
+    return "Vent variable", "🍃"
+
+
 # 4. Récupération des données depuis l'API Ecowitt Cloud
 @st.cache_data(ttl=60)
 def fetch_ecowitt_data(app_key, api_key, mac):
@@ -359,14 +385,33 @@ with tab4:
 
 # --- ONGLET 5 : Prévisions & Analyse ---
 with tab5:
-    st.subheader("🔮 Prévision Météo de Zambretti")
+    st.subheader("🔮 Prévisions & Analyses Locales")
+
+    # 1. Analyse Barométrique (Zambretti)
     if pressure is not None:
-        st.success(f"### 🎯 Tendance & Prévision : **{prevision_texte}**")
+        st.success(f"### 🎯 Tendance Barométrique : **{prevision_texte}**")
         c_z1, c_z2 = st.columns(2)
         c_z1.metric("Pression relative", f"{pressure} hPa")
         c_z2.metric("Tendance", f"{tendance_baro:+.2f} hPa")
     else:
         st.warning("Données barométriques non disponibles.")
+
+    st.markdown("---")
+
+    # 2. Analyse du Vent Local (Habère-Poche / Vallée Verte)
+    st.subheader("💨 Analyse du Vent & Signification Locale")
+    if wind_dir is not None:
+        nom_cardinal = degres_vers_cardinal(wind_dir)
+        interpretation_vent, emoji_vent = interpreter_vent_local(wind_dir, wind_speed)
+
+        col_v1, col_v2 = st.columns([1, 2])
+        with col_v1:
+            st.metric("Secteur actuel", f"{nom_cardinal} ({int(wind_dir)}°)", f"{wind_speed} km/h")
+        with col_v2:
+            st.markdown(f"### {emoji_vent} {interpretation_vent}")
+            st.caption("Interprétation empirique basée sur l'orientation des flux dans notre configuration de moyenne montagne.")
+    else:
+        st.info("Données de vent insuffisantes pour l'analyse locale.")
 
 # 7. Rafraîchissement automatique
 if auto_refresh:
