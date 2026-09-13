@@ -6,7 +6,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 import sqlite3
-import time
 
 # 1. Configuration de la page
 st.set_page_config(
@@ -51,7 +50,7 @@ def sauvegarder_mesure_db(timestamp, heure, temp, ressenti, humidite, pression, 
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
-        # On évite les doublons si on rafraîchit trop vite (on garde une mesure par minute min)
+        # On évite les doublons stricts sur la même minute exacte
         cursor.execute("""
             INSERT OR IGNORE INTO historique
             (timestamp, heure, temperature, ressenti, humidite, pression, pression_abs, vent, rafale, direction)
@@ -205,8 +204,7 @@ def interpreter_vent_local(degres, vitesse_kmh):
     return "Vent variable", "🍃"
 
 
-# 5. Récupération des données depuis l'API Ecowitt Cloud
-@st.cache_data(ttl=60)
+# 5. Récupération des données depuis l'API Ecowitt Cloud (sans cache persistant bloquant pour forcer la synchro fraîche)
 def fetch_ecowitt_data(app_key, api_key, mac):
     url = "https://api.ecowitt.net/api/v3/device/real_time"
     params = {
@@ -233,16 +231,12 @@ with st.sidebar:
     st.header("⚙️ Station Météo — Cloud")
     st.write("**Altitude :** 900 m (Vallée Verte)")
 
-    auto_refresh = st.checkbox("🔄 Actualisation auto (60s)", value=True)
-    refresh_interval = 60
-
-    if st.button("🔄 Rafraîchir les données"):
-        st.cache_data.clear()
+    if st.button("🔄 Forcer la synchro & Actualiser"):
         st.rerun()
 
 st.title("🏔️ Station Météo — Habère-Poche")
 
-# Appel de l'API Ecowitt
+# Appel immédiat et synchro fraîche de l'API Ecowitt à l'ouverture/rafraîchissement
 raw_data = fetch_ecowitt_data(ECOWITT_APP_KEY, ECOWITT_API_KEY, GW3000_MAC)
 
 if not raw_data or raw_data.get("code") != 0:
@@ -267,11 +261,12 @@ rain_day = get_sensor_val("rainfall", "day")
 
 base_cumulus_sol, altitude_cumulus_mer = calculer_base_cumulus(temp, humidity, 900)
 temp_ressentie, mode_ressenti = calculer_ressenti(temp, wind_speed, humidity)
+
 current_time_str = datetime.now().strftime("%H:%M:%S")
 current_timestamp = datetime.now()
 
 
-# 6. Sauvegarde et chargement depuis SQLite
+# 6. Sauvegarde immédiate du point actuel dans SQLite à chaque chargement de page
 if temp is not None:
     sauvegarder_mesure_db(
         current_timestamp, current_time_str, float(temp),
@@ -302,9 +297,8 @@ max_temp, min_temp, max_temp_time, min_temp_time = "--", "--", "", ""
 max_wind, max_gust = 0.0, 0.0
 
 if not df_hist.empty:
-    # Extrait les données du jour courant
     today_str = current_timestamp.strftime("%Y-%m-%d")
-    df_today = df_hist[df_hist["timestamp"].dt.strftime("%Y-%m-%d") == today_str]
+    df_today = df_hist[df_hist["timestamp"].dt.strftime("%Y-%m-%d"] == today_str]
     if not df_today.empty:
         max_t_row = df_today.loc[df_today["temperature"].idxmax()]
         min_t_row = df_today.loc[df_today["temperature"].idxmin()]
@@ -405,7 +399,6 @@ with tab3:
 with tab4:
     st.subheader("📈 Suivi Chronologique (Persistant)")
     if not df_hist.empty:
-        # On affiche l'axe temporel complet issu de la base SQLite
         fig_temp = px.line(df_hist, x="timestamp", y=["temperature", "ressenti"], markers=False, title="🌡️ Température et Ressenti")
         st.plotly_chart(fig_temp, use_container_width=True)
 
@@ -444,8 +437,3 @@ with tab5:
             st.caption("Interprétation empirique basée sur l'orientation des flux dans notre configuration de moyenne montagne.")
     else:
         st.info("Données de vent insuffisantes pour l'analyse locale.")
-
-# 9. Rafraîchissement automatique
-if auto_refresh:
-    time.sleep(refresh_interval)
-    st.rerun()
