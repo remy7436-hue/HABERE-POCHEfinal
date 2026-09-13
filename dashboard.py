@@ -5,6 +5,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
+import sqlite3
 import time
 
 # 1. Configuration de la page
@@ -14,13 +15,69 @@ st.set_page_config(
     layout="wide"
 )
 
-# 2. Récupération des secrets Ecowitt (configurés dans Streamlit Cloud -> Settings -> Secrets)
+# 2. Récupération des secrets Ecowitt
 ECOWITT_API_KEY = st.secrets.get("ECOWITT_API_KEY", "")
 ECOWITT_APP_KEY = st.secrets.get("ECOWITT_APP_KEY", "")
 GW3000_MAC = st.secrets.get("GW3000_MAC", "")
 
+DB_NAME = "meteo_historique.db"
 
-# 3. Fonctions utilitaires & conversion sécurisée
+
+# 3. Initialisation de la Base de Données SQLite
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS historique (
+            timestamp DATETIME PRIMARY KEY,
+            heure TEXT,
+            temperature REAL,
+            ressenti REAL,
+            humidite REAL,
+            pression REAL,
+            pression_abs REAL,
+            vent REAL,
+            rafale REAL,
+            direction REAL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()
+
+
+def sauvegarder_mesure_db(timestamp, heure, temp, ressenti, humidite, pression, pression_abs, vent, rafale, direction):
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        # On évite les doublons si on rafraîchit trop vite (on garde une mesure par minute min)
+        cursor.execute("""
+            INSERT OR IGNORE INTO historique
+            (timestamp, heure, temperature, ressenti, humidite, pression, pression_abs, vent, rafale, direction)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (timestamp.strftime("%Y-%m-%d %H:%M:%S"), heure, temp, ressenti, humidite, pression, pression_abs, vent, rafale, direction))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def charger_historique_db(limite_heures=24):
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        query = f"SELECT * FROM historique ORDER BY timestamp DESC LIMIT {limite_heures * 60}"
+        df = pd.read_sql_query(query, conn)
+        conn.close()
+        if not df.empty:
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            df = df.sort_values("timestamp").reset_index(drop=True)
+        return df
+    except Exception:
+        return pd.DataFrame(columns=["timestamp", "heure", "temperature", "ressenti", "humidite", "pression", "pression_abs", "vent", "rafale", "direction"])
+
+
+# 4. Fonctions utilitaires & conversion sécurisée
 def to_float(val):
     if val is None or val == "":
         return None
@@ -136,7 +193,6 @@ def interpreter_vent_local(degres, vitesse_kmh):
     if v < 3:
         return "Calme (insensible)", "💤"
 
-    # Découpage par secteurs cardinaux larges adaptés au relief
     if 315 <= deg <= 360 or 0 <= deg < 45:
         return "Bise / Vent de Nord : Temps généralement plus sec, assèchement, fraîcheur.", "🌬️"
     elif 45 <= deg < 135:
@@ -149,20 +205,19 @@ def interpreter_vent_local(degres, vitesse_kmh):
     return "Vent variable", "🍃"
 
 
-# 4. Récupération des données depuis l'API Ecowitt Cloud
+# 5. Récupération des données depuis l'API Ecowitt Cloud
 @st.cache_data(ttl=60)
 def fetch_ecowitt_data(app_key, api_key, mac):
-    """Interroge l'API Cloud d'Ecowitt pour récupérer le temps réel."""
     url = "https://api.ecowitt.net/api/v3/device/real_time"
     params = {
         "application_key": app_key,
         "api_key": api_key,
         "mac": mac,
         "call_by": "all",
-        "temp_unitid": "1",          # 1 pour Celsius
-        "wind_speed_unitid": "7",    # 7 pour km/h
-        "pressure_unitid": "3",      # 3 pour hPa (hectopascals)
-        "rain_unitid": "12"          # 12 pour mm
+        "temp_unitid": "1",
+        "wind_speed_unitid": "7",
+        "pressure_unitid": "3",
+        "rain_unitid": "12"
     }
     try:
         response = requests.get(url, params=params, timeout=8)
@@ -216,76 +271,58 @@ current_time_str = datetime.now().strftime("%H:%M:%S")
 current_timestamp = datetime.now()
 
 
-# 5. Gestion de l'historique et des deltas persistants en session
+# 6. Sauvegarde et chargement depuis SQLite
+if temp is not None:
+    sauvegarder_mesure_db(
+        current_timestamp, current_time_str, float(temp),
+        float(temp_ressentie) if temp_ressentie is not None else float(temp),
+        float(humidity) if humidity is not None else 0.0,
+        float(pressure) if pressure is not None else 0.0,
+        float(pressure_abs) if pressure_abs is not None else 0.0,
+        float(wind_speed) if wind_speed is not None else 0.0,
+        float(wind_gust) if wind_gust is not None else 0.0,
+        float(wind_dir) if wind_dir is not None else 0.0
+    )
+
+df_hist = charger_historique_db(limite_heures=24)
+
+# Gestion des deltas persistants basés sur les deux derniers points de la base de données
+delta_temp, delta_hum, delta_press = 0.0, 0.0, 0.0
+if len(df_hist) >= 2:
+    delta_temp = round(df_hist.iloc[-1]["temperature"] - df_hist.iloc[-2]["temperature"], 1)
+    delta_hum = round(df_hist.iloc[-1]["humidite"] - df_hist.iloc[-2]["humidite"], 1)
+    delta_press = round(df_hist.iloc[-1]["pression"] - df_hist.iloc[-2]["pression"], 2)
+
+
+# 7. Gestion des extrêmes du jour
 if "initialized" not in st.session_state:
     st.session_state.initialized = True
-    st.session_state.max_temp = temp
-    st.session_state.min_temp = temp
-    st.session_state.max_temp_time = current_time_str
-    st.session_state.min_temp_time = current_time_str
-    st.session_state.max_wind = wind_speed or 0
-    st.session_state.max_gust = wind_gust or 0
 
-    # Valeurs précédentes pour le calcul immédiat des deltas
-    st.session_state.prev_temp = temp
-    st.session_state.prev_hum = humidity
-    st.session_state.prev_press = pressure
+max_temp, min_temp, max_temp_time, min_temp_time = "--", "--", "", ""
+max_wind, max_gust = 0.0, 0.0
 
-    st.session_state.history_df = pd.DataFrame(columns=[
-        "timestamp", "heure", "temperature", "ressenti", "humidite", "pression", "pression_abs", "vent", "rafale", "direction"
-    ])
-
-# Calcul des deltas par rapport à la valeur mémorisée précédente
-delta_temp = round(temp - st.session_state.prev_temp, 1) if (temp is not None and st.session_state.prev_temp is not None) else 0.0
-delta_hum = round(humidity - st.session_state.prev_hum, 1) if (humidity is not None and st.session_state.prev_hum is not None) else 0.0
-delta_press = round(pressure - st.session_state.prev_press, 2) if (pressure is not None and st.session_state.prev_press is not None) else 0.0
-
-# Mise en mémoire des valeurs actuelles pour la prochaine comparaison
-if temp is not None: st.session_state.prev_temp = temp
-if humidity is not None: st.session_state.prev_hum = humidity
-if pressure is not None: st.session_state.prev_press = pressure
-
-# Ajout dans l'historique global pour les graphiques
-if temp is not None:
-    new_row = pd.DataFrame([{
-        "timestamp": current_timestamp,
-        "heure": current_time_str,
-        "temperature": float(temp),
-        "ressenti": float(temp_ressentie) if temp_ressentie is not None else float(temp),
-        "humidite": float(humidity) if humidity is not None else 0.0,
-        "pression": float(pressure) if pressure is not None else 0.0,
-        "pression_abs": float(pressure_abs) if pressure_abs is not None else 0.0,
-        "vent": float(wind_speed) if wind_speed is not None else 0.0,
-        "rafale": float(wind_gust) if wind_gust is not None else 0.0,
-        "direction": float(wind_dir) if wind_dir is not None else 0.0
-    }])
-    # Évite les doublons trop rapprochés (garde un point par minute environ)
-    if st.session_state.history_df.empty or (current_timestamp - st.session_state.history_df.iloc[-1]["timestamp"]).total_seconds() >= 60:
-        st.session_state.history_df = pd.concat([st.session_state.history_df, new_row], ignore_index=True)
-
-# Mise à jour des extrêmes du jour
-if temp is not None:
-    if st.session_state.max_temp is None or temp > st.session_state.max_temp:
-        st.session_state.max_temp = temp
-        st.session_state.max_temp_time = current_time_str
-    if st.session_state.min_temp is None or temp < st.session_state.min_temp:
-        st.session_state.min_temp = temp
-        st.session_state.min_temp_time = current_time_str
-
-if wind_speed is not None and wind_speed > st.session_state.max_wind:
-    st.session_state.max_wind = wind_speed
-if wind_gust is not None and wind_gust > st.session_state.max_gust:
-    st.session_state.max_gust = wind_gust
+if not df_hist.empty:
+    # Extrait les données du jour courant
+    today_str = current_timestamp.strftime("%Y-%m-%d")
+    df_today = df_hist[df_hist["timestamp"].dt.strftime("%Y-%m-%d") == today_str]
+    if not df_today.empty:
+        max_t_row = df_today.loc[df_today["temperature"].idxmax()]
+        min_t_row = df_today.loc[df_today["temperature"].idxmin()]
+        max_temp = max_t_row["temperature"]
+        max_temp_time = max_t_row["heure"]
+        min_temp = min_t_row["temperature"]
+        min_temp_time = min_t_row["heure"]
+        max_wind = df_today["vent"].max()
+        max_gust = df_today["rafale"].max()
 
 tendance_baro = 0.0
-df_h = st.session_state.history_df
-if len(df_h) >= 2:
-    tendance_baro = round(df_h.iloc[-1]["pression"] - df_h.iloc[0]["pression"], 2)
+if len(df_hist) >= 2:
+    tendance_baro = round(df_hist.iloc[-1]["pression"] - df_hist.iloc[0]["pression"], 2)
 
 prevision_texte = prevision_zambretti(pressure, tendance_baro)
 
 
-# 6. Structure par Onglets
+# 8. Structure par Onglets
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 Temps Réel & Extrêmes",
     "🧭 Rose des Vents",
@@ -299,8 +336,6 @@ with tab1:
     st.subheader("📡 Conditions Actuelles (Flux Ecowitt Cloud)")
 
     col1, col2, col3, col4 = st.columns(4)
-
-    # Affichage des métriques avec deltas et flèches automatiques
     col1.metric("Température", f"{temp} °C" if temp is not None else "--", delta=f"{delta_temp:+.1f} °C")
     col2.metric("Humidité", f"{humidity} %" if humidity is not None else "--", delta=f"{delta_hum:+.1f} %")
     col3.metric("Pression relative", f"{pressure} hPa" if pressure is not None else "--", delta=f"{delta_press:+.2f} hPa")
@@ -318,20 +353,19 @@ with tab1:
     col9, _ = st.columns(2)
     col9.metric("Pluie du jour", f"{rain_day} mm" if rain_day is not None else "0.0 mm")
 
-    st.markdown("### 🏆 Extrêmes & Records")
+    st.markdown("### 🏆 Extrêmes & Records du jour")
     e1, e2, e3, e4 = st.columns(4)
-    e1.metric("Max Chaleur (Tx)", f"{st.session_state.max_temp} °C" if st.session_state.max_temp is not None else "--", f"à {st.session_state.max_temp_time}")
-    e2.metric("Min Fraîcheur (Tn)", f"{st.session_state.min_temp} °C" if st.session_state.min_temp is not None else "--", f"à {st.session_state.min_temp_time}")
-    e3.metric("Vent max mesuré", f"{st.session_state.max_wind} km/h")
-    e4.metric("Rafale la plus rapide", f"{st.session_state.max_gust} km/h")
+    e1.metric("Max Chaleur (Tx)", f"{max_temp} °C" if max_temp != "--" else "--", f"à {max_temp_time}" if max_temp_time else "")
+    e2.metric("Min Fraîcheur (Tn)", f"{min_temp} °C" if min_temp != "--" else "--", f"à {min_temp_time}" if min_temp_time else "")
+    e3.metric("Vent max mesuré", f"{max_wind} km/h")
+    e4.metric("Rafale la plus rapide", f"{max_gust} km/h")
 
-    st.caption(f"Dernière synchronisation cloud : **{current_time_str}**")
+    st.caption(f"Dernière synchronisation cloud : **{current_time_str}** | Points en base SQLite : **{len(df_hist)}**")
 
 # --- ONGLET 2 : Rose des Vents ---
 with tab2:
-    st.subheader("🧭 Rose des Vents Cumulée")
-    df_hist = st.session_state.history_df
-    if not df_hist.empty and len(df_hist) >= 1:
+    st.subheader("🧭 Rose des Vents Cumulée (Base SQLite)")
+    if not df_hist.empty:
         fig_rose = go.Figure()
         fig_rose.add_trace(go.Barpolar(
             r=df_hist["vent"],
@@ -346,7 +380,7 @@ with tab2:
             height=500, margin=dict(t=40, b=40, l=40, r=40)
         )
         st.plotly_chart(fig_rose, use_container_width=True)
-        st.info(f"📊 Mesures accumulées dans la session : **{len(df_hist)}**")
+        st.info(f"📊 Mesures historiques cumulées : **{len(df_hist)}** points")
     else:
         st.info("Accumulation des données de vent en cours...")
 
@@ -369,25 +403,24 @@ with tab3:
 
 # --- ONGLET 4 : Historique & Tendances Graphiques ---
 with tab4:
-    st.subheader("📈 Suivi Chronologique")
-    df_hist = st.session_state.history_df
+    st.subheader("📈 Suivi Chronologique (Persistant)")
     if not df_hist.empty:
-        fig_temp = px.line(df_hist, x="heure", y=["temperature", "ressenti"], markers=True, title="🌡️ Température et Ressenti")
+        # On affiche l'axe temporel complet issu de la base SQLite
+        fig_temp = px.line(df_hist, x="timestamp", y=["temperature", "ressenti"], markers=False, title="🌡️ Température et Ressenti")
         st.plotly_chart(fig_temp, use_container_width=True)
 
-        fig_hum = px.line(df_hist, x="heure", y="humidite", markers=True, color_discrete_sequence=["#3498db"], title="💧 Humidité Relative")
+        fig_hum = px.line(df_hist, x="timestamp", y="humidite", markers=False, color_discrete_sequence=["#3498db"], title="💧 Humidité Relative")
         st.plotly_chart(fig_hum, use_container_width=True)
 
-        fig_press = px.line(df_hist, x="heure", y=["pression", "pression_abs"], markers=True, title="BAROMÈTRE — Pressions")
+        fig_press = px.line(df_hist, x="timestamp", y=["pression", "pression_abs"], markers=False, title="BAROMÈTRE — Pressions")
         st.plotly_chart(fig_press, use_container_width=True)
     else:
-        st.info("📊 En attente de points d'historique...")
+        st.info("📊 En attente de points d'historique dans la base...")
 
 # --- ONGLET 5 : Prévisions & Analyse ---
 with tab5:
     st.subheader("🔮 Prévisions & Analyses Locales")
 
-    # 1. Analyse Barométrique (Zambretti)
     if pressure is not None:
         st.success(f"### 🎯 Tendance Barométrique : **{prevision_texte}**")
         c_z1, c_z2 = st.columns(2)
@@ -398,7 +431,6 @@ with tab5:
 
     st.markdown("---")
 
-    # 2. Analyse du Vent Local (Habère-Poche / Vallée Verte)
     st.subheader("💨 Analyse du Vent & Signification Locale")
     if wind_dir is not None:
         nom_cardinal = degres_vers_cardinal(wind_dir)
@@ -413,7 +445,7 @@ with tab5:
     else:
         st.info("Données de vent insuffisantes pour l'analyse locale.")
 
-# 7. Rafraîchissement automatique
+# 9. Rafraîchissement automatique
 if auto_refresh:
     time.sleep(refresh_interval)
     st.rerun()
