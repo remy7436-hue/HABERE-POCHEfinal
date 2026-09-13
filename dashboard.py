@@ -22,7 +22,7 @@ GW3000_MAC = st.secrets.get("GW3000_MAC", "")
 DB_NAME = "meteo_historique.db"
 
 
-# 3. Initialisation de la Base de Données SQLite (avec colonne pluie)
+# 3. Initialisation de la Base de Données SQLite
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -62,7 +62,7 @@ def sauvegarder_mesure_db(timestamp, heure, temp, ressenti, humidite, pression, 
         pass
 
 
-def charger_historique_db(limite_heures=720):  # On élargit un peu par défaut pour pouvoir cumuler sur plusieurs jours/semaines si la base grossit
+def charger_historique_db(limite_heures=720):
     try:
         conn = sqlite3.connect(DB_NAME)
         query = f"SELECT * FROM historique ORDER BY timestamp DESC LIMIT {limite_heures * 60}"
@@ -78,7 +78,7 @@ def charger_historique_db(limite_heures=720):  # On élargit un peu par défaut 
         return pd.DataFrame(columns=["timestamp", "heure", "temperature", "ressenti", "humidite", "pression", "pression_abs", "vent", "rafale", "direction", "pluie"])
 
 
-# 4. Fonctions utilitaires & conversion sécurisée
+# 4. Fonctions utilitaires & calculs avancés
 def to_float(val):
     if val is None or val == "":
         return 0.0
@@ -153,6 +153,31 @@ def calculer_ressenti(temp, wind_speed_kmh, humidite):
         mode = "Humidex (Moiteur)"
 
     return ressenti, mode
+
+
+def analyser_risques_montagne(temp, humidite, pression, vent_speed):
+    """Calcule le risque de gel, l'évapotranspiration estimée et les alertes jardin."""
+    if temp is None or humidite is None:
+        return "Indisponible", "Indisponible", "Données insuffisantes"
+
+    # Point de rosée
+    a, b = 17.27, 237.7
+    alpha = ((a * temp) / (b + temp)) + np.log(humidite / 100.0)
+    dew_point = (b * alpha) / (a - alpha)
+
+    # 1. Risque de gel
+    if temp <= 2.0:
+        risque_gel = "🚨 Risque de gel imminent ou avéré !"
+    elif temp <= 5.0 and dew_point <= 2.0:
+        risque_gel = "⚠️ Risque de gelée blanche matinale (surfaces froides)"
+    else:
+        risque_gel = "✅ Aucun risque de gel pour l'instant"
+
+    # 2. Estimation simple de l'évapotranspiration (ETP journalière approximative en mm)
+    # Formule simplifiée basée sur température et humidité relative
+    etp = max(0.1, round(0.0023 * (temp + 17.8) * (100 - humidite)**0.5 * 5, 2))
+
+    return risque_gel, etp, round(dew_point, 1)
 
 
 def prevision_zambretti(pression_hpa, tendance_hpa_par_heure):
@@ -263,6 +288,7 @@ rain_day = get_sensor_val("rainfall", "day")
 
 base_cumulus_sol, altitude_cumulus_mer = calculer_base_cumulus(temp, humidity, 900)
 temp_ressentie, mode_ressenti = calculer_ressenti(temp, wind_speed, humidity)
+risque_gel, etp_val, point_rosee = analyser_risques_montagne(temp, humidity, pressure, wind_speed)
 
 current_time_str = datetime.now().strftime("%H:%M:%S")
 current_timestamp = datetime.now()
@@ -301,7 +327,7 @@ max_wind, max_gust = 0.0, 0.0
 
 if not df_hist.empty:
     today_str = current_timestamp.strftime("%Y-%m-%d")
-    df_today = df_hist[df_hist["timestamp"].dt.strftime("%Y-%m-%d") == today_str]
+    df_today = df_hist[df_hist["timestamp"].dt.strftime("%Y-%m-%d"] == today_str]
     if not df_today.empty:
         max_t_row = df_today.loc[df_today["temperature"].idxmax()]
         min_t_row = df_today.loc[df_today["temperature"].idxmin()]
@@ -319,12 +345,12 @@ if len(df_hist) >= 2:
 prevision_texte = prevision_zambretti(pressure, tendance_baro)
 
 
-# 8. Structure par Onglets (Ajout de l'onglet Pluviométrie)
+# 8. Structure par Onglets
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📊 Temps Réel & Extrêmes",
     "🧭 Rose des Vents",
     "🌧️ Pluviométrie",
-    "☁️ Hauteur des Cumulus",
+    "☁️ Plancher Nuageux & Paysage",
     "📈 Historique & Tendances",
     "💡 Prévisions & Analyse"
 ])
@@ -384,53 +410,59 @@ with tab2:
 
 # --- ONGLET 3 : Pluviométrie ---
 with tab3:
-    st.subheader("🌧️ Suivi de la Pluviométrie (Journalière, Hebdomadaire, Mensuelle)")
+    st.subheader("🌧️ Suivi de la Pluviométrie")
     if not df_hist.empty and "pluie" in df_hist.columns:
-        # Traitement pour regrouper les données par période
         df_rain = df_hist.copy()
         df_rain["date_seule"] = df_rain["timestamp"].dt.date
-        df_rain["semaine"] = df_rain["timestamp"].dt.strftime("%Y-W%U")
         df_rain["mois"] = df_rain["timestamp"].dt.strftime("%Y-%m")
 
-        # Pluie journalière (max journalier du cumul ou différence)
         df_journalier = df_rain.groupby("date_seule")["pluie"].max().reset_index()
-
-        # Pluie hebdomadaire et mensuelle estimée via le max de chaque période
-        df_hebdo = df_rain.groupby("semaine")["pluie"].max().reset_index()
         df_mensuel = df_rain.groupby("mois")["pluie"].max().reset_index()
 
         col_p1, col_p2, col_p3 = st.columns(3)
         derniere_pluie_jour = df_journalier.iloc[-1]["pluie"] if not df_journalier.empty else 0.0
         col_p1.metric("Cumul Journalier Récent", f"{derniere_pluie_jour} mm")
         col_p2.metric("Total Mois en cours", f"{df_mensuel.iloc[-1]['pluie'] if not df_mensuel.empty else 0.0} mm")
-        col_p3.metric("Moyenne / Max enregistré", f"{df_journalier['pluie'].max()} mm max sur un jour")
+        col_p3.metric("Max enregistré sur un jour", f"{df_journalier['pluie'].max()} mm")
 
-        st.markdown("### 📊 Historique Journalier des Précipitations")
-        fig_rain_day = px.bar(df_journalier, x="date_seule", y="pluie", title="Cumul de pluie par jour (mm)", labels={"date_seule": "Date", "pluie": "Pluie (mm)"}, color_discrete_sequence=["#2980b9"])
+        st.markdown("### 📊 Cumul de pluie par jour (mm)")
+        fig_rain_day = px.bar(df_journalier, x="date_seule", y="pluie", labels={"date_seule": "Date", "pluie": "Pluie (mm)"}, color_discrete_sequence=["#2980b9"])
         st.plotly_chart(fig_rain_day, use_container_width=True)
 
-        st.markdown("### 🗓️ Cumul Mensuel")
-        fig_rain_month = px.bar(df_mensuel, x="mois", y="pluie", title="Cumul de pluie par mois (mm)", labels={"mois": "Mois", "pluie": "Pluie (mm)"}, color_discrete_sequence=["#16a085"])
+        st.markdown("### 🗓️ Cumul de pluie par mois (mm)")
+        fig_rain_month = px.bar(df_mensuel, x="mois", y="pluie", labels={"mois": "Mois", "pluie": "Pluie (mm)"}, color_discrete_sequence=["#16a085"])
         st.plotly_chart(fig_rain_month, use_container_width=True)
     else:
         st.info("Accumulation des données de pluie en cours...")
 
-# --- ONGLET 4 : Hauteur des Cumulus ---
+# --- ONGLET 4 : Plancher Nuageux & Paysage ---
 with tab4:
-    st.subheader("🏔️ Plancher des Nuages (Vallée Verte)")
+    st.subheader("🏔️ Visualisation du Plancher Nuageux sur les Crêtes")
     if base_cumulus_sol is not None:
         c1, c2, c3 = st.columns(3)
         c1.metric("Altitude du village", "900 m")
-        c2.metric("Hauteur de la base / sol", f"+{base_cumulus_sol} m")
+        c2.metric("Hauteur base des nuages / sol", f"+{base_cumulus_sol} m")
         c3.metric("Altitude absolue du nuage", f"{altitude_cumulus_mer} m")
 
+        # Intégration graphique avec la photo et le niveau nuageux
         fig_pano = go.Figure()
-        fig_pano.add_trace(go.Scatter(x=[0, 1.5, 3, 4.5, 6], y=[200, 900, 400, 900, 200], mode="lines", fill="tozeroy", fillcolor="rgba(76, 111, 80, 0.4)", line=dict(color="#2e4d32", width=3), hoverinfo="skip"))
-        fig_pano.add_trace(go.Scatter(x=[3], y=[altitude_cumulus_mer], mode="markers+text", marker=dict(size=42, color="#ffffff", line=dict(color="#b0c4de", width=2), symbol="circle"), text=[f"☁️ Base des Cumulus\n({altitude_cumulus_mer} m)"], textposition="top center", textfont=dict(size=14, color="#1e3f66", family="Arial Black")))
-        fig_pano.update_layout(xaxis=dict(showgrid=False, zeroline=False, showticklabels=False), yaxis=dict(title="Altitude (m)", range=[100, max(altitude_cumulus_mer + 600, 2200)]), plot_bgcolor="rgba(235, 247, 255, 0.7)", height=500, showlegend=False)
+
+        # Ajout du profil de montagne stylisé et positionnement du nuage dynamique
+        fig_pano.add_trace(go.Scatter(x=[0, 1.5, 3, 4.5, 6], y=[300, 900, 450, 900, 300], mode="lines", fill="tozeroy", fillcolor="rgba(80, 50, 30, 0.5)", line=dict(color="#3d2817", width=3), hoverinfo="skip", name="Relief Habère-Poche"))
+        fig_pano.add_trace(go.Scatter(x=[3], y=[altitude_cumulus_mer], mode="markers+text", marker=dict(size=48, color="#ffffff", line=dict(color="#4a90e2", width=3), symbol="circle"), text=[f"☁️ Base des Cumulus\n({altitude_cumulus_mer} m)"], textposition="top center", textfont=dict(size=15, color="#1e3f66", family="Arial Black")))
+
+        fig_pano.update_layout(
+            title="Position estimée des nuages par rapport aux reliefs locaux",
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            yaxis=dict(title="Altitude (mètres)", range=[100, max(altitude_cumulus_mer + 800, 2400)]),
+            plot_bgcolor="rgba(220, 240, 255, 0.8)",
+            height=500,
+            showlegend=False
+        )
         st.plotly_chart(fig_pano, use_container_width=True)
+        st.caption("📷 Les crêtes immortalisées depuis la Vallée Verte servent de repère visuel pour situer l'épaisseur de la couche convective.")
     else:
-        st.info("⚠️ Données requises pour le calcul des cumulus.")
+        st.info("⚠️ Données requises pour le calcul du plancher nuageux.")
 
 # --- ONGLET 5 : Historique & Tendances Graphiques ---
 with tab5:
@@ -449,28 +481,36 @@ with tab5:
 
 # --- ONGLET 6 : Prévisions & Analyse ---
 with tab6:
-    st.subheader("🔮 Prévisions & Analyses Locales")
+    st.subheader("🔮 Prévisions Expertes & Indicateurs de Moyenne Montagne")
 
     if pressure is not None:
         st.success(f"### 🎯 Tendance Barométrique : **{prevision_texte}**")
         c_z1, c_z2 = st.columns(2)
         c_z1.metric("Pression relative", f"{pressure} hPa")
-        c_z2.metric("Tendance", f"{tendance_baro:+.2f} hPa")
+        c_z2.metric("Tendance barométrique", f"{tendance_baro:+.2f} hPa")
     else:
         st.warning("Données barométriques non disponibles.")
+
+    st.markdown("---")
+
+    st.subheader("🌱 Indicateurs Jardin & Montagne (Gel & ETP)")
+    g1, g2, g3 = st.columns(3)
+    g1.metric("Risque Gel / Gélives", risque_gel)
+    g2.metric("Évapotranspiration (ETP du jour)", f"{etp_val} mm/j", help="Estimation de l'évaporation et transpiration des sols/plantes")
+    g3.metric("Point de rosée", f"{point_rosee} °C", help="Température à laquelle l'air se sature (condensation)")
 
     st.markdown("---")
 
     st.subheader("💨 Analyse du Vent & Signification Locale")
     if wind_dir is not None:
         nom_cardinal = degres_vers_cardinal(wind_dir)
-        interpretation_vet, emoji_vent = interpreter_vent_local(wind_dir, wind_speed)
+        interpretation_vent, emoji_vent = interpreter_vent_local(wind_dir, wind_speed)
 
         col_v1, col_v2 = st.columns([1, 2])
         with col_v1:
             st.metric("Secteur actuel", f"{nom_cardinal} ({int(wind_dir)}°)", f"{wind_speed} km/h")
         with col_v2:
-            st.markdown(f"### {emoji_vent} {interpretation_vet}")
-            st.caption("Interprétation empirique basée sur l'orientation des flux dans notre configuration de moyenne montagne.")
+            st.markdown(f"### {emoji_vent} {interpretation_vent}")
+            st.caption("Interprétation empirique basée sur l'orientation des flux dans notre configuration de moyenne montagne à Habère-Poche.")
     else:
         st.info("Données de vent insuffisantes pour l'analyse locale.")
