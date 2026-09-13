@@ -123,7 +123,7 @@ def prevision_zambretti(pression_hpa, tendance_hpa_par_heure):
         else: return "🌧️ Temps pluvieux et maussade persistant"
 
 
-# 4. Récupération des données depuis l'API Ecowitt Cloud
+# 4. Récupération des données depuis l'API Ecowitt Cloud (avec unités forcées en métrique)
 @st.cache_data(ttl=60)
 def fetch_ecowitt_data(app_key, api_key, mac):
     """Interroge l'API Cloud d'Ecowitt pour récupérer le temps réel."""
@@ -133,8 +133,10 @@ def fetch_ecowitt_data(app_key, api_key, mac):
         "api_key": api_key,
         "mac": mac,
         "call_by": "all",
-        "temp_unitid": "1",      # 1 pour Celsius
-        "wind_speed_unitid": "7" # 7 pour km/h
+        "temp_unitid": "1",          # 1 pour Celsius
+        "wind_speed_unitid": "7",    # 7 pour km/h
+        "pressure_unitid": "3",      # 3 pour hPa (hectopascals)
+        "rain_unitid": "12"          # 12 pour mm
     }
     try:
         response = requests.get(url, params=params, timeout=8)
@@ -334,7 +336,7 @@ with tab4:
         fig_hum = px.line(df_hist, x="heure", y="humidite", markers=True, color_discrete_sequence=["#3498db"], title="💧 Humidité Relative")
         st.plotly_chart(fig_hum, use_container_width=True)
 
-        fig_press = px.line(df_hist, x="heure", y=["pression", "pression_abs"], markers=True, title="barOMETRE — Pressions")
+        fig_press = px.line(df_hist, x="heure", y=["pression", "pression_abs"], markers=True, title="BAROMÈTRE — Pressions")
         st.plotly_chart(fig_press, use_container_width=True)
     else:
         st.info("📊 En attente de points d'historique...")
