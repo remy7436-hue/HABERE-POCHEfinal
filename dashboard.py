@@ -204,7 +204,7 @@ def interpreter_vent_local(degres, vitesse_kmh):
     return "Vent variable", "🍃"
 
 
-# 5. Récupération des données depuis l'API Ecowitt Cloud (sans cache persistant bloquant pour forcer la synchro fraîche)
+# 5. Récupération des données depuis l'API Ecowitt Cloud
 def fetch_ecowitt_data(app_key, api_key, mac):
     url = "https://api.ecowitt.net/api/v3/device/real_time"
     params = {
@@ -298,7 +298,7 @@ max_wind, max_gust = 0.0, 0.0
 
 if not df_hist.empty:
     today_str = current_timestamp.strftime("%Y-%m-%d")
-    df_today = df_hist[df_hist["timestamp"].dt.strftime("%Y-%m-%d"] == today_str]
+    df_today = df_hist[df_hist["timestamp"].dt.strftime("%Y-%m-%d") == today_str]
     if not df_today.empty:
         max_t_row = df_today.loc[df_today["temperature"].idxmax()]
         min_t_row = df_today.loc[df_today["temperature"].idxmin()]
