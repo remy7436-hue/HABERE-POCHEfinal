@@ -22,7 +22,7 @@ GW3000_MAC = st.secrets.get("GW3000_MAC", "")
 DB_NAME = "meteo_historique.db"
 
 
-# 3. Initialisation de la Base de Données SQLite
+# 3. Initialisation de la Base de Données SQLite (avec colonne pluie)
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -37,7 +37,8 @@ def init_db():
             pression_abs REAL,
             vent REAL,
             rafale REAL,
-            direction REAL
+            direction REAL,
+            pluie REAL
         )
     """)
     conn.commit()
@@ -46,23 +47,22 @@ def init_db():
 init_db()
 
 
-def sauvegarder_mesure_db(timestamp, heure, temp, ressenti, humidite, pression, pression_abs, vent, rafale, direction):
+def sauvegarder_mesure_db(timestamp, heure, temp, ressenti, humidite, pression, pression_abs, vent, rafale, direction, pluie):
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
-        # On évite les doublons stricts sur la même minute exacte
         cursor.execute("""
             INSERT OR IGNORE INTO historique
-            (timestamp, heure, temperature, ressenti, humidite, pression, pression_abs, vent, rafale, direction)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (timestamp.strftime("%Y-%m-%d %H:%M:%S"), heure, temp, ressenti, humidite, pression, pression_abs, vent, rafale, direction))
+            (timestamp, heure, temperature, ressenti, humidite, pression, pression_abs, vent, rafale, direction, pluie)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (timestamp.strftime("%Y-%m-%d %H:%M:%S"), heure, temp, ressenti, humidite, pression, pression_abs, vent, rafale, direction, pluie))
         conn.commit()
         conn.close()
     except Exception:
         pass
 
 
-def charger_historique_db(limite_heures=24):
+def charger_historique_db(limite_heures=720):  # On élargit un peu par défaut pour pouvoir cumuler sur plusieurs jours/semaines si la base grossit
     try:
         conn = sqlite3.connect(DB_NAME)
         query = f"SELECT * FROM historique ORDER BY timestamp DESC LIMIT {limite_heures * 60}"
@@ -71,15 +71,17 @@ def charger_historique_db(limite_heures=24):
         if not df.empty:
             df["timestamp"] = pd.to_datetime(df["timestamp"])
             df = df.sort_values("timestamp").reset_index(drop=True)
+            if "pluie" not in df.columns:
+                df["pluie"] = 0.0
         return df
     except Exception:
-        return pd.DataFrame(columns=["timestamp", "heure", "temperature", "ressenti", "humidite", "pression", "pression_abs", "vent", "rafale", "direction"])
+        return pd.DataFrame(columns=["timestamp", "heure", "temperature", "ressenti", "humidite", "pression", "pression_abs", "vent", "rafale", "direction", "pluie"])
 
 
 # 4. Fonctions utilitaires & conversion sécurisée
 def to_float(val):
     if val is None or val == "":
-        return None
+        return 0.0
     try:
         clean_val = (
             str(val)
@@ -93,7 +95,7 @@ def to_float(val):
         )
         return float(clean_val)
     except (ValueError, TypeError):
-        return None
+        return 0.0
 
 
 def degres_vers_cardinal(deg):
@@ -236,7 +238,7 @@ with st.sidebar:
 
 st.title("🏔️ Station Météo — Habère-Poche")
 
-# Appel immédiat et synchro fraîche de l'API Ecowitt à l'ouverture/rafraîchissement
+# Appel immédiat et synchro fraîche de l'API Ecowitt
 raw_data = fetch_ecowitt_data(ECOWITT_APP_KEY, ECOWITT_API_KEY, GW3000_MAC)
 
 if not raw_data or raw_data.get("code") != 0:
@@ -266,7 +268,7 @@ current_time_str = datetime.now().strftime("%H:%M:%S")
 current_timestamp = datetime.now()
 
 
-# 6. Sauvegarde immédiate du point actuel dans SQLite à chaque chargement de page
+# 6. Sauvegarde immédiate dans SQLite
 if temp is not None:
     sauvegarder_mesure_db(
         current_timestamp, current_time_str, float(temp),
@@ -276,12 +278,13 @@ if temp is not None:
         float(pressure_abs) if pressure_abs is not None else 0.0,
         float(wind_speed) if wind_speed is not None else 0.0,
         float(wind_gust) if wind_gust is not None else 0.0,
-        float(wind_dir) if wind_dir is not None else 0.0
+        float(wind_dir) if wind_dir is not None else 0.0,
+        float(rain_day) if rain_day is not None else 0.0
     )
 
-df_hist = charger_historique_db(limite_heures=24)
+df_hist = charger_historique_db(limite_heures=720)
 
-# Gestion des deltas persistants basés sur les deux derniers points de la base de données
+# Gestion des deltas persistants
 delta_temp, delta_hum, delta_press = 0.0, 0.0, 0.0
 if len(df_hist) >= 2:
     delta_temp = round(df_hist.iloc[-1]["temperature"] - df_hist.iloc[-2]["temperature"], 1)
@@ -316,10 +319,11 @@ if len(df_hist) >= 2:
 prevision_texte = prevision_zambretti(pressure, tendance_baro)
 
 
-# 8. Structure par Onglets
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+# 8. Structure par Onglets (Ajout de l'onglet Pluviométrie)
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📊 Temps Réel & Extrêmes",
     "🧭 Rose des Vents",
+    "🌧️ Pluviométrie",
     "☁️ Hauteur des Cumulus",
     "📈 Historique & Tendances",
     "💡 Prévisions & Analyse"
@@ -378,8 +382,41 @@ with tab2:
     else:
         st.info("Accumulation des données de vent en cours...")
 
-# --- ONGLET 3 : Hauteur des Cumulus ---
+# --- ONGLET 3 : Pluviométrie ---
 with tab3:
+    st.subheader("🌧️ Suivi de la Pluviométrie (Journalière, Hebdomadaire, Mensuelle)")
+    if not df_hist.empty and "pluie" in df_hist.columns:
+        # Traitement pour regrouper les données par période
+        df_rain = df_hist.copy()
+        df_rain["date_seule"] = df_rain["timestamp"].dt.date
+        df_rain["semaine"] = df_rain["timestamp"].dt.strftime("%Y-W%U")
+        df_rain["mois"] = df_rain["timestamp"].dt.strftime("%Y-%m")
+
+        # Pluie journalière (max journalier du cumul ou différence)
+        df_journalier = df_rain.groupby("date_seule")["pluie"].max().reset_index()
+
+        # Pluie hebdomadaire et mensuelle estimée via le max de chaque période
+        df_hebdo = df_rain.groupby("semaine")["pluie"].max().reset_index()
+        df_mensuel = df_rain.groupby("mois")["pluie"].max().reset_index()
+
+        col_p1, col_p2, col_p3 = st.columns(3)
+        derniere_pluie_jour = df_journalier.iloc[-1]["pluie"] if not df_journalier.empty else 0.0
+        col_p1.metric("Cumul Journalier Récent", f"{derniere_pluie_jour} mm")
+        col_p2.metric("Total Mois en cours", f"{df_mensuel.iloc[-1]['pluie'] if not df_mensuel.empty else 0.0} mm")
+        col_p3.metric("Moyenne / Max enregistré", f"{df_journalier['pluie'].max()} mm max sur un jour")
+
+        st.markdown("### 📊 Historique Journalier des Précipitations")
+        fig_rain_day = px.bar(df_journalier, x="date_seule", y="pluie", title="Cumul de pluie par jour (mm)", labels={"date_seule": "Date", "pluie": "Pluie (mm)"}, color_discrete_sequence=["#2980b9"])
+        st.plotly_chart(fig_rain_day, use_container_width=True)
+
+        st.markdown("### 🗓️ Cumul Mensuel")
+        fig_rain_month = px.bar(df_mensuel, x="mois", y="pluie", title="Cumul de pluie par mois (mm)", labels={"mois": "Mois", "pluie": "Pluie (mm)"}, color_discrete_sequence=["#16a085"])
+        st.plotly_chart(fig_rain_month, use_container_width=True)
+    else:
+        st.info("Accumulation des données de pluie en cours...")
+
+# --- ONGLET 4 : Hauteur des Cumulus ---
+with tab4:
     st.subheader("🏔️ Plancher des Nuages (Vallée Verte)")
     if base_cumulus_sol is not None:
         c1, c2, c3 = st.columns(3)
@@ -395,8 +432,8 @@ with tab3:
     else:
         st.info("⚠️ Données requises pour le calcul des cumulus.")
 
-# --- ONGLET 4 : Historique & Tendances Graphiques ---
-with tab4:
+# --- ONGLET 5 : Historique & Tendances Graphiques ---
+with tab5:
     st.subheader("📈 Suivi Chronologique (Persistant)")
     if not df_hist.empty:
         fig_temp = px.line(df_hist, x="timestamp", y=["temperature", "ressenti"], markers=False, title="🌡️ Température et Ressenti")
@@ -410,8 +447,8 @@ with tab4:
     else:
         st.info("📊 En attente de points d'historique dans la base...")
 
-# --- ONGLET 5 : Prévisions & Analyse ---
-with tab5:
+# --- ONGLET 6 : Prévisions & Analyse ---
+with tab6:
     st.subheader("🔮 Prévisions & Analyses Locales")
 
     if pressure is not None:
@@ -427,13 +464,13 @@ with tab5:
     st.subheader("💨 Analyse du Vent & Signification Locale")
     if wind_dir is not None:
         nom_cardinal = degres_vers_cardinal(wind_dir)
-        interpretation_vent, emoji_vent = interpreter_vent_local(wind_dir, wind_speed)
+        interpretation_vet, emoji_vent = interpreter_vent_local(wind_dir, wind_speed)
 
         col_v1, col_v2 = st.columns([1, 2])
         with col_v1:
             st.metric("Secteur actuel", f"{nom_cardinal} ({int(wind_dir)}°)", f"{wind_speed} km/h")
         with col_v2:
-            st.markdown(f"### {emoji_vent} {interpretation_vent}")
+            st.markdown(f"### {emoji_vent} {interpretation_vet}")
             st.caption("Interprétation empirique basée sur l'orientation des flux dans notre configuration de moyenne montagne.")
     else:
         st.info("Données de vent insuffisantes pour l'analyse locale.")
