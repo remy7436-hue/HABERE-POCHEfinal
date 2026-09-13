@@ -190,23 +190,37 @@ current_time_str = datetime.now().strftime("%H:%M:%S")
 current_timestamp = datetime.now()
 
 
-# 5. Gestion de l'historique global de session
-if "history_df" not in st.session_state:
+# 5. Gestion de l'historique et des deltas persistants en session
+if "initialized" not in st.session_state:
+    st.session_state.initialized = True
     st.session_state.max_temp = temp
     st.session_state.min_temp = temp
     st.session_state.max_temp_time = current_time_str
     st.session_state.min_temp_time = current_time_str
     st.session_state.max_wind = wind_speed or 0
     st.session_state.max_gust = wind_gust or 0
-    st.session_state.last_recorded_time = current_timestamp
+
+    # Valeurs précédentes pour le calcul immédiat des deltas
+    st.session_state.prev_temp = temp
+    st.session_state.prev_hum = humidity
+    st.session_state.prev_press = pressure
 
     st.session_state.history_df = pd.DataFrame(columns=[
         "timestamp", "heure", "temperature", "ressenti", "humidite", "pression", "pression_abs", "vent", "rafale", "direction"
     ])
 
-# Ajout d'un point dans l'historique
-time_elapsed = (current_timestamp - st.session_state.last_recorded_time).total_seconds()
-if temp is not None and (st.session_state.history_df.empty or time_elapsed >= 60):
+# Calcul des deltas par rapport à la valeur mémorisée précédente
+delta_temp = round(temp - st.session_state.prev_temp, 1) if (temp is not None and st.session_state.prev_temp is not None) else 0.0
+delta_hum = round(humidity - st.session_state.prev_hum, 1) if (humidity is not None and st.session_state.prev_hum is not None) else 0.0
+delta_press = round(pressure - st.session_state.prev_press, 2) if (pressure is not None and st.session_state.prev_press is not None) else 0.0
+
+# Mise en mémoire des valeurs actuelles pour la prochaine comparaison
+if temp is not None: st.session_state.prev_temp = temp
+if humidity is not None: st.session_state.prev_hum = humidity
+if pressure is not None: st.session_state.prev_press = pressure
+
+# Ajout dans l'historique global pour les graphiques
+if temp is not None:
     new_row = pd.DataFrame([{
         "timestamp": current_timestamp,
         "heure": current_time_str,
@@ -219,8 +233,9 @@ if temp is not None and (st.session_state.history_df.empty or time_elapsed >= 60
         "rafale": float(wind_gust) if wind_gust is not None else 0.0,
         "direction": float(wind_dir) if wind_dir is not None else 0.0
     }])
-    st.session_state.history_df = pd.concat([st.session_state.history_df, new_row], ignore_index=True)
-    st.session_state.last_recorded_time = current_timestamp
+    # Évite les doublons trop rapprochés (garde un point par minute environ)
+    if st.session_state.history_df.empty or (current_timestamp - st.session_state.history_df.iloc[-1]["timestamp"]).total_seconds() >= 60:
+        st.session_state.history_df = pd.concat([st.session_state.history_df, new_row], ignore_index=True)
 
 # Mise à jour des extrêmes du jour
 if temp is not None:
@@ -236,17 +251,9 @@ if wind_speed is not None and wind_speed > st.session_state.max_wind:
 if wind_gust is not None and wind_gust > st.session_state.max_gust:
     st.session_state.max_gust = wind_gust
 
-# Calcul des deltas (comparaison avec l'avant-dernière valeur enregistrée s'il y en a)
-df_h = st.session_state.history_df
-delta_temp = None
-delta_hum = None
-delta_press = None
 tendance_baro = 0.0
-
+df_h = st.session_state.history_df
 if len(df_h) >= 2:
-    delta_temp = round(df_h.iloc[-1]["temperature"] - df_h.iloc[-2]["temperature"], 1)
-    delta_hum = round(df_h.iloc[-1]["humidite"] - df_h.iloc[-2]["humidite"], 1)
-    delta_press = round(df_h.iloc[-1]["pression"] - df_h.iloc[-2]["pression"], 2)
     tendance_baro = round(df_h.iloc[-1]["pression"] - df_h.iloc[0]["pression"], 2)
 
 prevision_texte = prevision_zambretti(pressure, tendance_baro)
@@ -267,10 +274,10 @@ with tab1:
 
     col1, col2, col3, col4 = st.columns(4)
 
-    # Affichage avec delta natif de Streamlit (qui gère automatiquement les flèches vert/rouge)
-    col1.metric("Température", f"{temp} °C" if temp is not None else "--", delta=f"{delta_temp:+.1f} °C" if delta_temp is not None else None)
-    col2.metric("Humidité", f"{humidity} %" if humidity is not None else "--", delta=f"{delta_hum:+.1f} %" if delta_hum is not None else None)
-    col3.metric("Pression relative", f"{pressure} hPa" if pressure is not None else "--", delta=f"{delta_press:+.2f} hPa" if delta_press is not None else None)
+    # Affichage des métriques avec deltas et flèches automatiques
+    col1.metric("Température", f"{temp} °C" if temp is not None else "--", delta=f"{delta_temp:+.1f} °C")
+    col2.metric("Humidité", f"{humidity} %" if humidity is not None else "--", delta=f"{delta_hum:+.1f} %")
+    col3.metric("Pression relative", f"{pressure} hPa" if pressure is not None else "--", delta=f"{delta_press:+.2f} hPa")
     col4.metric("Pression absolue", f"{pressure_abs} hPa" if pressure_abs is not None else "--")
 
     st.markdown("---")
