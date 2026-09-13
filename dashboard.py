@@ -123,7 +123,7 @@ def prevision_zambretti(pression_hpa, tendance_hpa_par_heure):
         else: return "🌧️ Temps pluvieux et maussade persistant"
 
 
-# 4. Récupération des données depuis l'API Ecowitt Cloud (avec unités forcées en métrique)
+# 4. Récupération des données depuis l'API Ecowitt Cloud
 @st.cache_data(ttl=60)
 def fetch_ecowitt_data(app_key, api_key, mac):
     """Interroge l'API Cloud d'Ecowitt pour récupérer le temps réel."""
@@ -170,7 +170,6 @@ if not raw_data or raw_data.get("code") != 0:
 
 data_sensors = raw_data.get("data", {})
 
-# Extraction sécurisée des données courantes depuis le dictionnaire Ecowitt v3
 def get_sensor_val(sensor_group, key_name):
     group = data_sensors.get(sensor_group, {})
     val_obj = group.get(key_name, {})
@@ -205,7 +204,7 @@ if "history_df" not in st.session_state:
         "timestamp", "heure", "temperature", "ressenti", "humidite", "pression", "pression_abs", "vent", "rafale", "direction"
     ])
 
-# Ajout régulier d'un point dans l'historique local pour alimenter les courbes et la rose des vents
+# Ajout d'un point dans l'historique
 time_elapsed = (current_timestamp - st.session_state.last_recorded_time).total_seconds()
 if temp is not None and (st.session_state.history_df.empty or time_elapsed >= 60):
     new_row = pd.DataFrame([{
@@ -237,9 +236,17 @@ if wind_speed is not None and wind_speed > st.session_state.max_wind:
 if wind_gust is not None and wind_gust > st.session_state.max_gust:
     st.session_state.max_gust = wind_gust
 
-tendance_baro = 0.0
+# Calcul des deltas (comparaison avec l'avant-dernière valeur enregistrée s'il y en a)
 df_h = st.session_state.history_df
+delta_temp = None
+delta_hum = None
+delta_press = None
+tendance_baro = 0.0
+
 if len(df_h) >= 2:
+    delta_temp = round(df_h.iloc[-1]["temperature"] - df_h.iloc[-2]["temperature"], 1)
+    delta_hum = round(df_h.iloc[-1]["humidite"] - df_h.iloc[-2]["humidite"], 1)
+    delta_press = round(df_h.iloc[-1]["pression"] - df_h.iloc[-2]["pression"], 2)
     tendance_baro = round(df_h.iloc[-1]["pression"] - df_h.iloc[0]["pression"], 2)
 
 prevision_texte = prevision_zambretti(pressure, tendance_baro)
@@ -259,9 +266,11 @@ with tab1:
     st.subheader("📡 Conditions Actuelles (Flux Ecowitt Cloud)")
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Température", f"{temp} °C" if temp is not None else "--")
-    col2.metric("Humidité", f"{humidity} %" if humidity is not None else "--")
-    col3.metric("Pression relative", f"{pressure} hPa" if pressure is not None else "--")
+
+    # Affichage avec delta natif de Streamlit (qui gère automatiquement les flèches vert/rouge)
+    col1.metric("Température", f"{temp} °C" if temp is not None else "--", delta=f"{delta_temp:+.1f} °C" if delta_temp is not None else None)
+    col2.metric("Humidité", f"{humidity} %" if humidity is not None else "--", delta=f"{delta_hum:+.1f} %" if delta_hum is not None else None)
+    col3.metric("Pression relative", f"{pressure} hPa" if pressure is not None else "--", delta=f"{delta_press:+.2f} hPa" if delta_press is not None else None)
     col4.metric("Pression absolue", f"{pressure_abs} hPa" if pressure_abs is not None else "--")
 
     st.markdown("---")
