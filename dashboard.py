@@ -174,7 +174,6 @@ def analyser_risques_montagne(temp, humidite, pression, vent_speed):
         risque_gel = "✅ Aucun risque de gel pour l'instant"
 
     # 2. Estimation simple de l'évapotranspiration (ETP journalière approximative en mm)
-    # Formule simplifiée basée sur température et humidité relative
     etp = max(0.1, round(0.0023 * (temp + 17.8) * (100 - humidite)**0.5 * 5, 2))
 
     return risque_gel, etp, round(dew_point, 1)
@@ -327,7 +326,9 @@ max_wind, max_gust = 0.0, 0.0
 
 if not df_hist.empty:
     today_str = current_timestamp.strftime("%Y-%m-%d")
-    df_today = df_hist[df_hist["timestamp"].dt.strftime("%Y-%m-%d"] == today_str]
+    date_str_series = df_hist["timestamp"].dt.strftime("%Y-%m-%d")
+    df_today = df_hist[date_str_series == today_str]
+
     if not df_today.empty:
         max_t_row = df_today.loc[df_today["temperature"].idxmax()]
         min_t_row = df_today.loc[df_today["temperature"].idxmin()]
@@ -444,10 +445,7 @@ with tab4:
         c2.metric("Hauteur base des nuages / sol", f"+{base_cumulus_sol} m")
         c3.metric("Altitude absolue du nuage", f"{altitude_cumulus_mer} m")
 
-        # Intégration graphique avec la photo et le niveau nuageux
         fig_pano = go.Figure()
-
-        # Ajout du profil de montagne stylisé et positionnement du nuage dynamique
         fig_pano.add_trace(go.Scatter(x=[0, 1.5, 3, 4.5, 6], y=[300, 900, 450, 900, 300], mode="lines", fill="tozeroy", fillcolor="rgba(80, 50, 30, 0.5)", line=dict(color="#3d2817", width=3), hoverinfo="skip", name="Relief Habère-Poche"))
         fig_pano.add_trace(go.Scatter(x=[3], y=[altitude_cumulus_mer], mode="markers+text", marker=dict(size=48, color="#ffffff", line=dict(color="#4a90e2", width=3), symbol="circle"), text=[f"☁️ Base des Cumulus\n({altitude_cumulus_mer} m)"], textposition="top center", textfont=dict(size=15, color="#1e3f66", family="Arial Black")))
 
