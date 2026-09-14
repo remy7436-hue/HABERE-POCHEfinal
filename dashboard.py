@@ -5,7 +5,6 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
-import sqlite3
 import os
 import base64
 
@@ -21,63 +20,61 @@ ECOWITT_API_KEY = st.secrets.get("ECOWITT_API_KEY", "")
 ECOWITT_APP_KEY = st.secrets.get("ECOWITT_APP_KEY", "")
 GW3000_MAC = st.secrets.get("GW3000_MAC", "")
 
-DB_NAME = "meteo_historique.db"
+CSV_FILENAME = "historique_meteo.csv"
 
 
-# 3. Initialisation de la Base de Données SQLite
-def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS historique (
-            timestamp DATETIME PRIMARY KEY,
-            heure TEXT,
-            temperature REAL,
-            ressenti REAL,
-            humidite REAL,
-            pression REAL,
-            pression_abs REAL,
-            vent REAL,
-            rafale REAL,
-            direction REAL,
-            pluie REAL
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-init_db()
+# 3. Gestion de l'historique persistant par fichier CSV
+def charger_historique_csv():
+    if os.path.exists(CSV_FILENAME):
+        try:
+            df = pd.read_csv(CSV_FILENAME)
+            if not df.empty and "timestamp" in df.columns:
+                df["timestamp"] = pd.to_datetime(df["timestamp"])
+                df = df.sort_values("timestamp").reset_index(drop=True)
+                if "pluie" not in df.columns:
+                    df["pluie"] = 0.0
+                return df
+        except Exception:
+            pass
+    # Structure par défaut si le fichier n'existe pas encore
+    return pd.DataFrame(columns=[
+        "timestamp", "heure", "temperature", "ressenti",
+        "humidite", "pression", "pression_abs", "vent",
+        "rafale", "direction", "pluie"
+    ])
 
 
-def sauvegarder_mesure_db(timestamp, heure, temp, ressenti, humidite, pression, pression_abs, vent, rafale, direction, pluie):
-    try:
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT OR IGNORE INTO historique
-            (timestamp, heure, temperature, ressenti, humidite, pression, pression_abs, vent, rafale, direction, pluie)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (timestamp.strftime("%Y-%m-%d %H:%M:%S"), heure, temp, ressenti, humidite, pression, pression_abs, vent, rafale, direction, pluie))
-        conn.commit()
-        conn.close()
-    except Exception:
-        pass
+def sauvegarder_mesure_csv(timestamp, heure, temp, ressenti, humidite, pression, pression_abs, vent, rafale, direction, pluie):
+    df = charger_historique_csv()
 
+    nouvelle_ligne = pd.DataFrame([{
+        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        "heure": heure,
+        "temperature": temp,
+        "ressenti": ressenti,
+        "humidite": humidite,
+        "pression": pression,
+        "pression_abs": pression_abs,
+        "vent": vent,
+        "rafale": rafale,
+        "direction": direction,
+        "pluie": pluie
+    }])
 
-def charger_historique_db(limite_heures=720):
-    try:
-        conn = sqlite3.connect(DB_NAME)
-        query = f"SELECT * FROM historique ORDER BY timestamp DESC LIMIT {limite_heures * 60}"
-        df = pd.read_sql_query(query, conn)
-        conn.close()
-        if not df.empty:
-            df["timestamp"] = pd.to_datetime(df["timestamp"])
-            df = df.sort_values("timestamp").reset_index(drop=True)
-            if "pluie" not in df.columns:
-                df["pluie"] = 0.0
-        return df
-    except Exception:
-        return pd.DataFrame(columns=["timestamp", "heure", "temperature", "ressenti", "humidite", "pression", "pression_abs", "vent", "rafale", "direction", "pluie"])
+    # Évite les doublons stricts basés sur la minute exacte
+    if not df.empty:
+        dernier_temps = df.iloc[-1]["timestamp"].strftime("%Y-%m-%d %H:%M")
+        actuel_temps = timestamp.strftime("%Y-%m-%d %H:%M")
+        if dernier_temps == actuel_temps:
+            return df # Déjà enregistré pour cette minute
+
+    df = pd.concat([df, nouvelle_ligne], ignore_index=True)
+    # Garde par exemple les 50 000 dernières mesures pour éviter que le fichier devienne trop lourd
+    if len(df) > 50000:
+        df = df.tail(50000)
+
+    df.to_csv(CSV_FILENAME, index=False)
+    return df
 
 
 # 4. Fonctions utilitaires & calculs avancés
@@ -291,9 +288,9 @@ current_time_str = datetime.now().strftime("%H:%M:%S")
 current_timestamp = datetime.now()
 
 
-# 6. Sauvegarde immédiate dans SQLite
+# 6. Sauvegarde immédiate dans le fichier CSV persistant
 if temp is not None:
-    sauvegarder_mesure_db(
+    df_hist = sauvegarder_mesure_csv(
         current_timestamp, current_time_str, float(temp),
         float(temp_ressentie) if temp_ressentie is not None else float(temp),
         float(humidity) if humidity is not None else 0.0,
@@ -304,8 +301,8 @@ if temp is not None:
         float(wind_dir) if wind_dir is not None else 0.0,
         float(rain_day) if rain_day is not None else 0.0
     )
-
-df_hist = charger_historique_db(limite_heures=720)
+else:
+    df_hist = charger_historique_csv()
 
 delta_temp, delta_hum, delta_press = 0.0, 0.0, 0.0
 if len(df_hist) >= 2:
@@ -382,27 +379,44 @@ with tab1:
     e3.metric("Vent max mesuré", f"{max_wind} km/h")
     e4.metric("Rafale la plus rapide", f"{max_gust} km/h")
 
-    st.caption(f"Dernière synchronisation cloud : **{current_time_str}** | Points en base SQLite : **{len(df_hist)}**")
+    st.caption(f"Dernière synchronisation cloud : **{current_time_str}** | Points historiques cumulés (CSV) : **{len(df_hist)}**")
 
 # --- ONGLET 2 : Rose des Vents ---
 with tab2:
-    st.subheader("🧭 Rose des Vents Cumulée (Base SQLite)")
-    if not df_hist.empty:
-        fig_rose = go.Figure()
-        fig_rose.add_trace(go.Barpolar(
-            r=df_hist["vent"],
-            theta=df_hist["direction"],
-            width=15,
-            marker=dict(color=df_hist["vent"], colorscale="Blues", showscale=True, colorbar=dict(title="km/h")),
-            opacity=0.75,
-            name="Vents"
-        ))
-        fig_rose.update_layout(
-            polar=dict(radialaxis=dict(visible=True, title="Vitesse (km/h)"), angularaxis=dict(direction="clockwise", period=360, rotation=90)),
-            height=500, margin=dict(t=40, b=40, l=40, r=40)
-        )
-        st.plotly_chart(fig_rose, use_container_width=True)
-        st.info(f"📊 Mesures historiques cumulées : **{len(df_hist)}** points")
+    st.subheader("🧭 Rose des Vents Agrégée (Historique Persistant)")
+    if not df_hist.empty and "direction" in df_hist.columns and "vent" in df_hist.columns:
+        df_rose = df_hist.dropna(subset=["direction", "vent"]).copy()
+        if not df_rose.empty:
+            # Regroupement par secteurs cardinaux pour une vraie rose des vents lisible en étoile
+            df_rose["secteur"] = df_rose["direction"].apply(degres_vers_cardinal)
+            df_grouped = df_rose.groupby("secteur")["vent"].agg(["count", "mean"]).reset_index()
+
+            # Tri ordonné des secteurs de la rose des vents
+            ordre_dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+                          "S", "SSO", "SO", "OSO", "O", "ONO", "NO", "NNO"]
+            df_grouped["secteur"] = pd.Categorical(df_grouped["secteur"], categories=ordre_dirs, ordered=True)
+            df_grouped = df_grouped.sort_values("secteur").dropna()
+
+            fig_rose = go.Figure()
+            fig_rose.add_trace(go.Barpolar(
+                r=df_grouped["count"],
+                theta=df_grouped["secteur"],
+                width=20,
+                marker=dict(color=df_grouped["mean"], colorscale="Blues", showscale=True, colorbar=dict(title="Vent moy. (km/h)")),
+                opacity=0.8,
+                name="Fréquence des vents"
+            ))
+            fig_rose.update_layout(
+                polar=dict(
+                    radialaxis=dict(visible=True, title="Fréquence (Nb mesures)"),
+                    angularaxis=dict(direction="clockwise", period=360, rotation=90)
+                ),
+                height=520, margin=dict(t=40, b=40, l=40, r=40)
+            )
+            st.plotly_chart(fig_rose, use_container_width=True)
+            st.info(f"📊 Basé sur **{len(df_rose)}** mesures cumulées dans le fichier d'historique.")
+        else:
+            st.info("Données de vent en cours d'accumulation...")
     else:
         st.info("Accumulation des données de vent en cours...")
 
@@ -444,7 +458,7 @@ with tab4:
 
         fig_pano = go.Figure()
 
-        # Intégration robuste de l'image de fond via encodage Base64
+        # Intégration de l'image de fond via encodage Base64
         image_path = "PXL_20260913_173725056.MP.jpg"
         if os.path.exists(image_path):
             with open(image_path, "rb") as img_file:
@@ -500,7 +514,7 @@ with tab4:
 
 # --- ONGLET 5 : Historique & Tendances Graphiques ---
 with tab5:
-    st.subheader("📈 Suivi Chronologique (Persistant)")
+    st.subheader("📈 Suivi Chronologique (Persistant CSV)")
     if not df_hist.empty:
         fig_temp = px.line(df_hist, x="timestamp", y=["temperature", "ressenti"], markers=False, title="🌡️ Température et Ressenti")
         st.plotly_chart(fig_temp, use_container_width=True)
@@ -511,7 +525,7 @@ with tab5:
         fig_press = px.line(df_hist, x="timestamp", y=["pression", "pression_abs"], markers=False, title="BAROMÈTRE — Pressions")
         st.plotly_chart(fig_press, use_container_width=True)
     else:
-        st.info("📊 En attente de points d'historique dans la base...")
+        st.info("📊 En attente de points d'historique...")
 
 # --- ONGLET 6 : Prévisions & Analyse ---
 with tab6:
