@@ -66,6 +66,12 @@ def charger_historique_gsheet():
                 df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
                 df = df.dropna(subset=["timestamp"])
                 if not df.empty:
+                    # Conversion systématique et propre en numérique pour éviter les couacs
+                    cols_num = ["temperature", "ressenti", "humidite", "pression", "pression_abs", "vent", "rafale", "direction", "pluie"]
+                    for col in cols_num:
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors="coerce")
+
                     df = df.sort_values("timestamp").reset_index(drop=True)
                     if "pluie" not in df.columns:
                         df["pluie"] = 0.0
@@ -260,7 +266,6 @@ if not df_hist.empty and "timestamp" in df_hist.columns:
     df_today = df_hist[df_hist["timestamp"].dt.strftime("%Y-%m-%d") == current_timestamp.strftime("%Y-%m-%d")]
     if not df_today.empty:
         df_today["temperature"] = pd.to_numeric(df_today["temperature"], errors="coerce")
-        # Filtrer les valeurs aberrantes (> 50°C ou < -30°C) pour les extrêmes du jour
         df_today_clean = df_today[(df_today["temperature"] >= -30) & (df_today["temperature"] <= 50)]
         if not df_today_clean.empty:
             max_t, min_t = df_today_clean.loc[df_today_clean["temperature"].idxmax()], df_today_clean.loc[df_today_clean["temperature"].idxmin()]
@@ -388,17 +393,44 @@ with tab4:
     else: st.info("Calcul du plancher nuageux indisponible.")
 
 with tab5:
-    st.subheader("📈 Historique Chronologique")
+    st.subheader("📈 Historique & Tendances Lissées")
     if not df_hist.empty:
-        # Filtrer proprement les températures aberrantes pour les graphes d'historique
         df_plot = df_hist.copy()
+
+        # Nettoyage strict des plages aberrantes pour éviter les pics à 1500°C ou pressions folles
         df_plot["temperature"] = pd.to_numeric(df_plot["temperature"], errors="coerce")
         df_plot["ressenti"] = pd.to_numeric(df_plot["ressenti"], errors="coerce")
-        df_plot.loc[(df_plot["temperature"] < -30) | (df_plot["temperature"] > 50), "temperature"] = np.nan
+        df_plot["humidite"] = pd.to_numeric(df_plot["humidite"], errors="coerce")
+        df_plot["pression"] = pd.to_numeric(df_plot["pression"], errors="coerce")
+        df_plot["vent"] = pd.to_numeric(df_plot["vent"], errors="coerce")
+        df_plot["direction"] = pd.to_numeric(df_plot["direction"], errors="coerce")
 
-        st.plotly_chart(px.line(df_plot, x="timestamp", y=["temperature", "ressenti"], title="Températures"), use_container_width=True)
-        st.plotly_chart(px.line(df_hist, x="timestamp", y="pression", title="Pression atmosphérique"), use_container_width=True)
-    else: st.info("Historique vide pour le moment.")
+        df_plot.loc[(df_plot["temperature"] < -30) | (df_plot["temperature"] > 50), "temperature"] = np.nan
+        df_plot.loc[(df_plot["ressenti"] < -40) | (df_plot["ressenti"] > 60), "ressenti"] = np.nan
+        df_plot.loc[(df_plot["pression"] < 900) | (df_plot["pression"] > 1100), "pression"] = np.nan
+
+        # Graphique Température & Ressenti (Lissé avec spline)
+        fig_temp = px.line(df_plot, x="timestamp", y=["temperature", "ressenti"], title="Températures et Ressenti (°C)")
+        fig_temp.update_traces(line_shape="spline")
+        st.plotly_chart(fig_temp, use_container_width=True)
+
+        # Graphique Humidité (Lissé avec spline)
+        fig_hum = px.line(df_plot, x="timestamp", y="humidite", title="Humidité relative (%)")
+        fig_hum.update_traces(line_shape="spline", line_color="teal")
+        st.plotly_chart(fig_hum, use_container_width=True)
+
+        # Graphique Pression atmosphérique (Lissé avec spline)
+        fig_press = px.line(df_plot, x="timestamp", y="pression", title="Pression atmosphérique (hPa)")
+        fig_press.update_traces(line_shape="spline", line_color="rebeccapurple")
+        st.plotly_chart(fig_press, use_container_width=True)
+
+        # Graphique Direction du vent au fil du temps
+        fig_dir = px.scatter(df_plot, x="timestamp", y="direction", title="Direction du vent au fil du temps (en degrés)", labels={"direction": "Direction (°)"})
+        fig_dir.update_traces(marker=dict(size=6, color="orange"))
+        fig_dir.update_layout(yaxis=dict(range=[0, 360], tickvals=[0, 90, 180, 270, 360], ticktext=["N (0°)", "E (90°)", "S (180°)", "O (270°)", "N (360°)"]))
+        st.plotly_chart(fig_dir, use_container_width=True)
+    else:
+        st.info("Historique vide pour le moment.")
 
 with tab6:
     st.subheader("🔮 Prévisions & Analyse de Moyenne Montagne")
