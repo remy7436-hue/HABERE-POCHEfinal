@@ -11,6 +11,7 @@ import time
 import pytz
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import traceback
 
 # 1. Configuration de la page
 st.set_page_config(
@@ -37,6 +38,7 @@ def connecter_google_sheet():
     gcp_creds = dict(st.secrets["gcp_service_account"])
     creds = ServiceAccountCredentials.from_json_keyfile_dict(gcp_creds, scope)
     client = gspread.authorize(creds)
+    # Si ton onglet s'appelle différemment de sheet1, change le ici (ex: worksheet("Feuille 1"))
     sheet = client.open(SHEET_NAME).sheet1
     return sheet
 
@@ -87,7 +89,9 @@ def sauvegarder_mesure_gsheet(timestamp, heure, temp, ressenti, humidite, pressi
         sheet = connecter_google_sheet()
         sheet.append_row(nouvelle_ligne)
     except Exception as e:
-        st.error(f"❌ Erreur critique d'écriture Google Sheet : {e}")
+        # Affiche l'erreur exacte et la trace technique complète pour comprendre le blocage
+        st.error(f"❌ Erreur critique d'écriture Google Sheet : {str(e)}")
+        st.code(traceback.format_exc())
 
     nouvelle_df = pd.DataFrame([{
         "timestamp": timestamp_propre, "heure": heure, "temperature": temp,
@@ -230,7 +234,7 @@ timezone = pytz.timezone("Europe/Paris")
 current_timestamp = datetime.now(timezone)
 current_time_str = current_timestamp.strftime("%H:%M:%S")
 
-# Sauvegarde dans le Google Sheet (les erreurs s'afficheront désormais en rouge si présentes)
+# Sauvegarde dans le Google Sheet
 df_hist = sauvegarder_mesure_gsheet(
     current_timestamp, current_time_str, temp, temp_ressentie,
     humidity, pressure, pressure_abs, wind_speed, wind_gust, wind_dir, rain_day
