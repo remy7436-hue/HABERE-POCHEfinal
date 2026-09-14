@@ -60,9 +60,8 @@ def charger_historique_gsheet():
                     if "pluie" not in df.columns:
                         df["pluie"] = 0.0
                     return df
-    except Exception:
-        # Silencieux pour ne pas perturber l'interface en cas de micro-coupure
-        pass
+    except Exception as e:
+        st.warning(f"⚠️ Connexion au Google Sheet : {e}")
 
     return df_vide
 
@@ -70,7 +69,8 @@ def charger_historique_gsheet():
 def sauvegarder_mesure_gsheet(timestamp, heure, temp, ressenti, humidite, pression, pression_abs, vent, rafale, direction, pluie):
     df = charger_historique_gsheet()
 
-    actuel_temps = timestamp.strftime("%Y-%m-%d %H:%M")
+    timestamp_propre = timestamp.replace(microsecond=0)
+    actuel_temps = timestamp_propre.strftime("%Y-%m-%d %H:%M")
 
     if not df.empty and "timestamp" in df.columns:
         dernier_temps = pd.to_datetime(df.iloc[-1]["timestamp"]).strftime("%Y-%m-%d %H:%M") if pd.notnull(df.iloc[-1]["timestamp"]) else ""
@@ -78,7 +78,7 @@ def sauvegarder_mesure_gsheet(timestamp, heure, temp, ressenti, humidite, pressi
             return df
 
     nouvelle_ligne = [
-        timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        timestamp_propre.strftime("%Y-%m-%d %H:%M:%S"),
         heure, temp, ressenti, humidite, pression,
         pression_abs, vent, rafale, direction, pluie
     ]
@@ -86,12 +86,11 @@ def sauvegarder_mesure_gsheet(timestamp, heure, temp, ressenti, humidite, pressi
     try:
         sheet = connecter_google_sheet()
         sheet.append_row(nouvelle_ligne)
-    except Exception:
-        # On évite d'interrompre l'app si l'écriture Google Sheets rate temporairement
-        pass
+    except Exception as e:
+        st.error(f"❌ Erreur critique d'écriture Google Sheet : {e}")
 
     nouvelle_df = pd.DataFrame([{
-        "timestamp": timestamp, "heure": heure, "temperature": temp,
+        "timestamp": timestamp_propre, "heure": heure, "temperature": temp,
         "ressenti": ressenti, "humidite": humidite, "pression": pression,
         "pression_abs": pression_abs, "vent": vent, "rafale": rafale,
         "direction": direction, "pluie": pluie
@@ -231,7 +230,7 @@ timezone = pytz.timezone("Europe/Paris")
 current_timestamp = datetime.now(timezone)
 current_time_str = current_timestamp.strftime("%H:%M:%S")
 
-# Sauvegarde dans le Google Sheet
+# Sauvegarde dans le Google Sheet (les erreurs s'afficheront désormais en rouge si présentes)
 df_hist = sauvegarder_mesure_gsheet(
     current_timestamp, current_time_str, temp, temp_ressentie,
     humidity, pressure, pressure_abs, wind_speed, wind_gust, wind_dir, rain_day
