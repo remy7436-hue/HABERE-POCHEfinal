@@ -309,7 +309,7 @@ with tab4:
                     xref="x", yref="y", x=0, y=3000, sizex=10, sizey=2600, sizing="stretch", opacity=0.85, layer="below"
                 ))
         fig_pano.add_hline(y=altitude_mer, line_dash="dash", line_color="red", annotation_text=f"☁️ Nuages ({altitude_mer} m)")
-        fig_pano.update_layout(xaxis=dict(showvisible=False, range=[-0.5, 9.5]), yaxis=dict(range=[400, 3000]), height=500)
+        fig_pano.update_layout(xaxis=dict(visible=False, range=[-0.5, 9.5]), yaxis=dict(range=[400, 3000]), height=500)
         st.plotly_chart(fig_pano, use_container_width=True)
     else: st.info("Calcul du plancher nuageux indisponible.")
 
