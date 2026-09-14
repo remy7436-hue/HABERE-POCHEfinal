@@ -213,9 +213,16 @@ def get_val(group, key):
         val = node
     return to_float(val)
 
-temp = get_val("outdoor", "temperature")
-# Correction du format de température Ecowitt (ex: 211 -> 21.1 °C)
-if temp > 60:
+temp_brute = get_val("outdoor", "temperature")
+
+# Gestion intelligente de la température Ecowitt (dième de degré ou Fahrenheit brut)
+if temp_brute > 100:
+    temp = round((temp_brute - 32) * 5.0 / 9.0, 1) if temp_brute > 120 else round(temp_brute / 10.0, 1)
+else:
+    temp = round(temp_brute, 1)
+
+# Sécurité ultime : si la température dépasse 50°C à 900m, on divise par 10
+if temp > 50:
     temp = round(temp / 10.0, 1)
 
 humidity = get_val("outdoor", "humidity")
