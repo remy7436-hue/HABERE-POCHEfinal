@@ -66,7 +66,6 @@ def charger_historique_gsheet():
                 df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
                 df = df.dropna(subset=["timestamp"])
                 if not df.empty:
-                    # Conversion systématique et propre en numérique pour éviter les couacs
                     cols_num = ["temperature", "ressenti", "humidite", "pression", "pression_abs", "vent", "rafale", "direction", "pluie"]
                     for col in cols_num:
                         if col in df.columns:
@@ -219,7 +218,6 @@ def get_val(group, key):
         val = node
     return to_float(val)
 
-# Température brute en Fahrenheit convertie proprement en Celsius
 temp_brute = get_val("outdoor", "temperature")
 temp = round((temp_brute - 32.0) * 5.0 / 9.0, 1)
 
@@ -246,7 +244,6 @@ timezone = pytz.timezone("Europe/Paris")
 current_timestamp = datetime.now(timezone)
 current_time_str = current_timestamp.strftime("%H:%M:%S")
 
-# Sauvegarde dans le Google Sheet
 df_hist = sauvegarder_mesure_gsheet(
     current_timestamp, current_time_str, temp, temp_ressentie,
     humidity, pressure, pressure_abs, wind_speed, wind_gust, wind_dir, rain_day
@@ -259,7 +256,6 @@ delta_temp = round(float(df_hist.iloc[-1]["temperature"]) - float(df_hist.iloc[-
 delta_hum = round(float(df_hist.iloc[-1]["humidite"]) - float(df_hist.iloc[-2]["humidite"]), 1) if len(df_hist) >= 2 else 0.0
 delta_press = round(float(df_hist.iloc[-1]["pression"]) - float(df_hist.iloc[-2]["pression"]), 2) if len(df_hist) >= 2 else 0.0
 
-# Extrêmes du jour
 max_temp, min_temp, max_temp_time, min_temp_time = "--", "--", "", ""
 max_wind, max_gust = 0.0, 0.0
 if not df_hist.empty and "timestamp" in df_hist.columns:
@@ -330,10 +326,11 @@ with tab2:
                 mean=("vent", "mean")
             ).reindex(ordres_secteurs, fill_value=0).reset_index()
 
+            # Largeur ajustée à 15 pour des barres bien distinctes
             fig_rose = go.Figure(go.Barpolar(
                 r=df_grp["count"],
                 theta=df_grp["secteur"],
-                width=20,
+                width=15,
                 marker=dict(
                     color=df_grp["mean"],
                     colorscale="Blues",
@@ -366,7 +363,7 @@ with tab3:
         df_rain["date_seule"] = df_rain["timestamp"].dt.date
         df_journalier = df_rain.groupby("date_seule")["pluie"].max().reset_index()
 
-        c_p1, c_p2 = st.columns(2)
+        c_p1, _ = st.columns(2)
         c_p1.metric("Cumul récent", f"{df_journalier.iloc[-1]['pluie'] if not df_journalier.empty else 0.0} mm")
         st.plotly_chart(px.bar(df_journalier, x="date_seule", y="pluie", title="Cumul journalier"), use_container_width=True)
     else: st.info("En attente de données de pluie...")
@@ -397,7 +394,6 @@ with tab5:
     if not df_hist.empty:
         df_plot = df_hist.copy()
 
-        # Nettoyage strict des plages aberrantes pour éviter les pics à 1500°C ou pressions folles
         df_plot["temperature"] = pd.to_numeric(df_plot["temperature"], errors="coerce")
         df_plot["ressenti"] = pd.to_numeric(df_plot["ressenti"], errors="coerce")
         df_plot["humidite"] = pd.to_numeric(df_plot["humidite"], errors="coerce")
@@ -409,22 +405,22 @@ with tab5:
         df_plot.loc[(df_plot["ressenti"] < -40) | (df_plot["ressenti"] > 60), "ressenti"] = np.nan
         df_plot.loc[(df_plot["pression"] < 900) | (df_plot["pression"] > 1100), "pression"] = np.nan
 
-        # Graphique Température & Ressenti (Lissé avec spline)
+        # Graphique Température & Ressenti (Spline)
         fig_temp = px.line(df_plot, x="timestamp", y=["temperature", "ressenti"], title="Températures et Ressenti (°C)")
         fig_temp.update_traces(line_shape="spline")
         st.plotly_chart(fig_temp, use_container_width=True)
 
-        # Graphique Humidité (Lissé avec spline)
+        # Graphique Humidité (Spline)
         fig_hum = px.line(df_plot, x="timestamp", y="humidite", title="Humidité relative (%)")
         fig_hum.update_traces(line_shape="spline", line_color="teal")
         st.plotly_chart(fig_hum, use_container_width=True)
 
-        # Graphique Pression atmosphérique (Lissé avec spline)
+        # Graphique Pression atmosphérique (Spline)
         fig_press = px.line(df_plot, x="timestamp", y="pression", title="Pression atmosphérique (hPa)")
         fig_press.update_traces(line_shape="spline", line_color="rebeccapurple")
         st.plotly_chart(fig_press, use_container_width=True)
 
-        # Graphique Direction du vent au fil du temps
+        # Graphique Direction du vent
         fig_dir = px.scatter(df_plot, x="timestamp", y="direction", title="Direction du vent au fil du temps (en degrés)", labels={"direction": "Direction (°)"})
         fig_dir.update_traces(marker=dict(size=6, color="orange"))
         fig_dir.update_layout(yaxis=dict(range=[0, 360], tickvals=[0, 90, 180, 270, 360], ticktext=["N (0°)", "E (90°)", "S (180°)", "O (270°)", "N (360°)"]))
