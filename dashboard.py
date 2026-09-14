@@ -213,16 +213,9 @@ def get_val(group, key):
         val = node
     return to_float(val)
 
-# CONVERSION CORRIGÉE : L'API renvoie des dixièmes de Fahrenheit (ex: 691 -> 69.1 °F -> ~20.6 °C)
+# CORRECTION FINALE : L'API renvoie la température brute en Fahrenheit (ex: 69.1 °F -> ~20.6 °C)
 temp_brute = get_val("outdoor", "temperature")
-
-if temp_brute > 100:
-    # C'est du Fahrenheit en dixièmes (ex: 691 -> 69.1 °F)
-    temp_fahrenheit = temp_brute / 10.0
-    temp = round((temp_fahrenheit - 32) * 5.0 / 9.0, 1)
-else:
-    # Si c'est déjà en Celsius direct
-    temp = round(temp_brute, 1)
+temp = round((temp_brute - 32.0) * 5.0 / 9.0, 1)
 
 humidity = get_val("outdoor", "humidity")
 
