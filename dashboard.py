@@ -29,7 +29,7 @@ def charger_historique_csv():
         try:
             df = pd.read_csv(CSV_FILENAME)
             if not df.empty and "timestamp" in df.columns:
-                df["timestamp"] = pd.to_datetime(df["timestamp"])
+                df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
                 df = df.sort_values("timestamp").reset_index(drop=True)
                 if "pluie" not in df.columns:
                     df["pluie"] = 0.0
@@ -63,7 +63,7 @@ def sauvegarder_mesure_csv(timestamp, heure, temp, ressenti, humidite, pression,
 
     # Évite les doublons stricts basés sur la minute exacte
     if not df.empty:
-        dernier_temps = df.iloc[-1]["timestamp"].strftime("%Y-%m-%d %H:%M")
+        dernier_temps = df.iloc[-1]["timestamp"].strftime("%Y-%m-%d %H:%M") if pd.notnull(df.iloc[-1]["timestamp"]) else ""
         actuel_temps = timestamp.strftime("%Y-%m-%d %H:%M")
         if dernier_temps == actuel_temps:
             return df # Déjà enregistré pour cette minute
@@ -319,6 +319,9 @@ max_temp, min_temp, max_temp_time, min_temp_time = "--", "--", "", ""
 max_wind, max_gust = 0.0, 0.0
 
 if not df_hist.empty:
+    # Sécurité : conversion explicite en datetime pour l'accesseur .dt
+    df_hist["timestamp"] = pd.to_datetime(df_hist["timestamp"], errors="coerce")
+
     today_str = current_timestamp.strftime("%Y-%m-%d")
     date_str_series = df_hist["timestamp"].dt.strftime("%Y-%m-%d")
     df_today = df_hist[date_str_series == today_str]
