@@ -28,7 +28,7 @@ GW3000_MAC = st.secrets.get("GW3000_MAC", "")
 SHEET_NAME = "Historique_Meteo_Habere_Poche"
 
 
-# 3. Connexion au Google Sheet (Mise en cache propre, sécurisée et autonettoyante)
+# 3. Connexion au Google Sheet
 @st.cache_resource
 def connecter_google_sheet():
     scope = [
@@ -38,20 +38,8 @@ def connecter_google_sheet():
     gcp_creds = dict(st.secrets["gcp_service_account"])
 
     if "private_key" in gcp_creds:
-        key = str(gcp_creds["private_key"])
-        # Nettoyage des retours à la ligne échappés
-        key = key.replace("\\n", "\n")
-
-        # Si la clé est collée d'un seul bloc ou mal formatée, on la reconstruit proprement
-        if "BEGIN PRIVATE KEY" in key and "END PRIVATE KEY" in key:
-            body = key.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "")
-            # On nettoie tous les espaces, retours à la ligne ou caractères parasites (comme les points)
-            body = "".join(body.split()).replace(".", "")
-            # On redécoupe proprement par blocs de 64 caractères
-            chunks = [body[i:i+64] for i in range(0, len(body), 64)]
-            key = "-----BEGIN PRIVATE KEY-----\n" + "\n".join(chunks) + "\n-----END PRIVATE KEY-----\n"
-
-        gcp_creds["private_key"] = key
+        # S'assure que les retours à la ligne sont bien pris en compte
+        gcp_creds["private_key"] = str(gcp_creds["private_key"]).replace("\\n", "\n")
 
     creds = Credentials.from_service_account_info(gcp_creds, scopes=scope)
     client = gspread.authorize(creds)
