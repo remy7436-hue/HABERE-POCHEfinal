@@ -98,8 +98,20 @@ def sauvegarder_mesure_gsheet(timestamp, heure, temp, ressenti, humidite, pressi
     return df
 
 
-# 4. Fonctions utilitaires & calculs
-to_float = lambda val: float(str(val).replace("%", "").replace("°C", "").replace("km/h", "").replace("hPa", "").replace("mm", "").replace(",", ".").strip()) if val not in [None, ""] else 0.0
+# 4. Fonctions utilitaires & calculs robustes
+def to_float(val):
+    if val is None or val == "":
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = str(val).lower()
+    for unit in ["°c", "km/h", "hpa", "mm", "%", "in"]:
+        s = s.replace(unit, "")
+    s = s.replace(",", ".").strip()
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
 
 def degres_vers_cardinal(deg):
     if deg is None or pd.isna(deg): return "N/A"
@@ -181,7 +193,14 @@ if not raw_data or raw_data.get("code") != 0:
     st.stop()
 
 ds = raw_data.get("data", {})
-get_val = lambda group, key: to_float(ds.get(group, {}).get(key, {}).get("value"))
+
+def get_val(group, key):
+    node = ds.get(group, {}).get(key, {})
+    if isinstance(node, dict):
+        val = node.get("value", 0.0)
+    else:
+        val = node
+    return to_float(val)
 
 temp = get_val("outdoor", "temperature")
 humidity = get_val("outdoor", "humidity")
