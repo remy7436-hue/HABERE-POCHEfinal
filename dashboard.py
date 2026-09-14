@@ -6,6 +6,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 import sqlite3
+import os
 
 # 1. Configuration de la page
 st.set_page_config(
@@ -15,9 +16,9 @@ st.set_page_config(
 )
 
 # 2. Récupération des secrets Ecowitt
-ECOWITT_API_KEY = st.secrets.get("ECOWITT_API_KEY", "")
-ECOWITT_APP_KEY = st.secrets.get("ECOWITT_APP_KEY", "")
-GW3000_MAC = st.secrets.get("GW3000_MAC", "")
+ECOWITT_API_KEY = st.secrets.get("ECOWITT_API_KEY", " e7c7ac1f-9f8d-41b7-8d4e-ff02bafac937")
+ECOWITT_APP_KEY = st.secrets.get("ECOWITT_APP_KEY", "9A10455F8BBE5DFFEA6E970BF213172D")
+GW3000_MAC = st.secrets.get("GW3000_MAC", "00:70:07:C2:E4:93")
 
 DB_NAME = "meteo_historique.db"
 
@@ -156,16 +157,13 @@ def calculer_ressenti(temp, wind_speed_kmh, humidite):
 
 
 def analyser_risques_montagne(temp, humidite, pression, vent_speed):
-    """Calcule le risque de gel, l'évapotranspiration estimée et les alertes jardin."""
     if temp is None or humidite is None:
         return "Indisponible", "Indisponible", "Données insuffisantes"
 
-    # Point de rosée
     a, b = 17.27, 237.7
     alpha = ((a * temp) / (b + temp)) + np.log(humidite / 100.0)
     dew_point = (b * alpha) / (a - alpha)
 
-    # 1. Risque de gel
     if temp <= 2.0:
         risque_gel = "🚨 Risque de gel imminent ou avéré !"
     elif temp <= 5.0 and dew_point <= 2.0:
@@ -173,7 +171,6 @@ def analyser_risques_montagne(temp, humidite, pression, vent_speed):
     else:
         risque_gel = "✅ Aucun risque de gel pour l'instant"
 
-    # 2. Estimation simple de l'évapotranspiration (ETP journalière approximative en mm)
     etp = max(0.1, round(0.0023 * (temp + 17.8) * (100 - humidite)**0.5 * 5, 2))
 
     return risque_gel, etp, round(dew_point, 1)
@@ -309,7 +306,6 @@ if temp is not None:
 
 df_hist = charger_historique_db(limite_heures=720)
 
-# Gestion des deltas persistants
 delta_temp, delta_hum, delta_press = 0.0, 0.0, 0.0
 if len(df_hist) >= 2:
     delta_temp = round(df_hist.iloc[-1]["temperature"] - df_hist.iloc[-2]["temperature"], 1)
@@ -436,7 +432,7 @@ with tab3:
     else:
         st.info("Accumulation des données de pluie en cours...")
 
-# --- ONGLET 4 : Plancher Nuageux & Paysage ---
+# --- ONGLET 4 : Plancher Nuageux & Paysage (Immersion Photo) ---
 with tab4:
     st.subheader("🏔️ Visualisation du Plancher Nuageux sur les Crêtes")
     if base_cumulus_sol is not None:
@@ -446,15 +442,51 @@ with tab4:
         c3.metric("Altitude absolue du nuage", f"{altitude_cumulus_mer} m")
 
         fig_pano = go.Figure()
-        fig_pano.add_trace(go.Scatter(x=[0, 1.5, 3, 4.5, 6], y=[300, 900, 450, 900, 300], mode="lines", fill="tozeroy", fillcolor="rgba(80, 50, 30, 0.5)", line=dict(color="#3d2817", width=3), hoverinfo="skip", name="Relief Habère-Poche"))
-        fig_pano.add_trace(go.Scatter(x=[3], y=[altitude_cumulus_mer], mode="markers+text", marker=dict(size=48, color="#ffffff", line=dict(color="#4a90e2", width=3), symbol="circle"), text=[f"☁️ Base des Cumulus\n({altitude_cumulus_mer} m)"], textposition="top center", textfont=dict(size=15, color="#1e3f66", family="Arial Black")))
+
+        # Intégration de la vraie photo originale en fond
+        image_path = "PXL_20260913_173725056.MP.jpg"
+        if os.path.exists(image_path):
+            fig_pano.add_layout_image(
+                dict(
+                    source=image_path,
+                    xref="paper",
+                    yref="paper",
+                    x=0,
+                    y=1,
+                    sizex=1,
+                    sizey=1,
+                    sizing="stretch",
+                    opacity=0.9,
+                    layer="below"
+                )
+            )
+        else:
+            st.warning(f"⚠️ Image de fond introuvable : `{image_path}`")
+
+        # Repère de la base des cumulus en surimpression
+        fig_pano.add_hline(
+            y=altitude_cumulus_mer,
+            line_dash="dash",
+            line_color="rgba(255, 255, 255, 0.9)",
+            annotation_text=f"☁️ Base des Cumulus ({altitude_cumulus_mer} m)",
+            annotation_position="top right",
+            annotation_font=dict(size=14, color="white", family="Arial", weight="bold")
+        )
 
         fig_pano.update_layout(
             title="Position estimée des nuages par rapport aux reliefs locaux",
             xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            yaxis=dict(title="Altitude (mètres)", range=[100, max(altitude_cumulus_mer + 800, 2400)]),
-            plot_bgcolor="rgba(220, 240, 255, 0.8)",
-            height=500,
+            yaxis=dict(
+                title="Altitude (mètres)",
+                range=[400, 3000],
+                gridcolor="rgba(255, 255, 255, 0.3)",
+                tickfont=dict(color="white")
+            ),
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            height=550,
+            margin=dict(l=60, r=20, t=40, b=30),
+            font=dict(color="white"),
             showlegend=False
         )
         st.plotly_chart(fig_pano, use_container_width=True)
