@@ -42,27 +42,28 @@ def connecter_google_sheet():
 
 
 def charger_historique_gsheet():
+    df_vide = pd.DataFrame(columns=[
+        "timestamp", "heure", "temperature", "ressenti",
+        "humidite", "pression", "pression_abs", "vent",
+        "rafale", "direction", "pluie"
+    ])
     try:
         sheet = connecter_google_sheet()
         data = sheet.get_all_records()
         if data:
             df = pd.DataFrame(data)
             if not df.empty and "timestamp" in df.columns:
-                # Conversion sécurisée en datetime pour éviter l'erreur .dt
                 df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
                 df = df.dropna(subset=["timestamp"])
-                df = df.sort_values("timestamp").reset_index(drop=True)
-                if "pluie" not in df.columns:
-                    df["pluie"] = 0.0
-                return df
+                if not df.empty:
+                    df = df.sort_values("timestamp").reset_index(drop=True)
+                    if "pluie" not in df.columns:
+                        df["pluie"] = 0.0
+                    return df
     except Exception as e:
         st.warning(f"⚠️ Connexion au Google Sheet en cours ou échec temporaire : {e}")
 
-    return pd.DataFrame(columns=[
-        "timestamp", "heure", "temperature", "ressenti",
-        "humidite", "pression", "pression_abs", "vent",
-        "rafale", "direction", "pluie"
-    ])
+    return df_vide
 
 
 def sauvegarder_mesure_gsheet(timestamp, heure, temp, ressenti, humidite, pression, pression_abs, vent, rafale, direction, pluie):
@@ -205,6 +206,10 @@ df_hist = sauvegarder_mesure_gsheet(
     humidity, pressure, pressure_abs, wind_speed, wind_gust, wind_dir, rain_day
 )
 
+# Sécurité additionnelle datetime
+if not df_hist.empty and "timestamp" in df_hist.columns:
+    df_hist["timestamp"] = pd.to_datetime(df_hist["timestamp"], errors="coerce")
+
 delta_temp = round(float(df_hist.iloc[-1]["temperature"]) - float(df_hist.iloc[-2]["temperature"]), 1) if len(df_hist) >= 2 else 0.0
 delta_hum = round(float(df_hist.iloc[-1]["humidite"]) - float(df_hist.iloc[-2]["humidite"]), 1) if len(df_hist) >= 2 else 0.0
 delta_press = round(float(df_hist.iloc[-1]["pression"]) - float(df_hist.iloc[-2]["pression"]), 2) if len(df_hist) >= 2 else 0.0
@@ -225,7 +230,7 @@ tendance_baro = round(float(df_hist.iloc[-1]["pression"]) - float(df_hist.iloc[0
 prevision_texte = prevision_zambretti(pressure, tendance_baro)
 
 
-# 6. Onglets de l'application (Les 6 onglets d'origine)
+# 6. Onglets de l'application
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📊 Temps Réel & Extrêmes", "🧭 Rose des Vents", "🌧️ Pluviométrie",
     "☁️ Plancher Nuageux", "📈 Historique & Tendances", "💡 Prévisions & Analyse"
