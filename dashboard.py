@@ -213,7 +213,7 @@ def get_val(group, key):
         val = node
     return to_float(val)
 
-# CORRECTION FINALE : L'API renvoie la température brute en Fahrenheit (ex: 69.1 °F -> ~20.6 °C)
+# Température brute en Fahrenheit convertie proprement en Celsius
 temp_brute = get_val("outdoor", "temperature")
 temp = round((temp_brute - 32.0) * 5.0 / 9.0, 1)
 
@@ -260,9 +260,12 @@ if not df_hist.empty and "timestamp" in df_hist.columns:
     df_today = df_hist[df_hist["timestamp"].dt.strftime("%Y-%m-%d") == current_timestamp.strftime("%Y-%m-%d")]
     if not df_today.empty:
         df_today["temperature"] = pd.to_numeric(df_today["temperature"], errors="coerce")
-        max_t, min_t = df_today.loc[df_today["temperature"].idxmax()], df_today.loc[df_today["temperature"].idxmin()]
-        max_temp, max_temp_time = max_t["temperature"], max_t["heure"]
-        min_temp, min_temp_time = min_t["temperature"], min_t["heure"]
+        # Filtrer les valeurs aberrantes (> 50°C ou < -30°C) pour les extrêmes du jour
+        df_today_clean = df_today[(df_today["temperature"] >= -30) & (df_today["temperature"] <= 50)]
+        if not df_today_clean.empty:
+            max_t, min_t = df_today_clean.loc[df_today_clean["temperature"].idxmax()], df_today_clean.loc[df_today_clean["temperature"].idxmin()]
+            max_temp, max_temp_time = max_t["temperature"], max_t["heure"]
+            min_temp, min_temp_time = min_t["temperature"], min_t["heure"]
         max_wind, max_gust = pd.to_numeric(df_today["vent"], errors="coerce").max(), pd.to_numeric(df_today["rafale"], errors="coerce").max()
 
 tendance_baro = round(float(df_hist.iloc[-1]["pression"]) - float(df_hist.iloc[0]["pression"]), 2) if len(df_hist) >= 2 else 0.0
@@ -306,17 +309,49 @@ with tab2:
     if not df_hist.empty and "direction" in df_hist.columns:
         df_rose = df_hist.dropna(subset=["direction", "vent"]).copy()
         df_rose["vent"] = pd.to_numeric(df_rose["vent"], errors="coerce")
+        df_rose["direction"] = pd.to_numeric(df_rose["direction"], errors="coerce")
+        df_rose = df_rose.dropna(subset=["direction", "vent"])
+
         if not df_rose.empty:
+            ordres_secteurs = [
+                "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+                "S", "SSO", "SO", "OSO", "O", "ONO", "NO", "NNO"
+            ]
+
             df_rose["secteur"] = df_rose["direction"].apply(degres_vers_cardinal)
-            df_grp = df_rose.groupby("secteur")["vent"].agg(["count", "mean"]).reset_index()
+
+            df_grp = df_rose.groupby("secteur").agg(
+                count=("vent", "count"),
+                mean=("vent", "mean")
+            ).reindex(ordres_secteurs, fill_value=0).reset_index()
+
             fig_rose = go.Figure(go.Barpolar(
-                r=df_grp["count"], theta=df_grp["secteur"], width=20,
-                marker=dict(color=df_grp["mean"], colorscale="Blues", showscale=True)
+                r=df_grp["count"],
+                theta=df_grp["secteur"],
+                width=20,
+                marker=dict(
+                    color=df_grp["mean"],
+                    colorscale="Blues",
+                    showscale=True,
+                    colorbar=dict(title="Vent moyen (km/h)")
+                )
             ))
-            fig_rose.update_layout(polar=dict(angularaxis=dict(direction="clockwise", rotation=90)), height=500)
+
+            fig_rose.update_layout(
+                polar=dict(
+                    angularaxis=dict(
+                        categoryarray=ordres_secteurs,
+                        direction="clockwise",
+                        rotation=90
+                    )
+                ),
+                height=500
+            )
             st.plotly_chart(fig_rose, use_container_width=True)
-        else: st.info("Accumulation des vents en cours...")
-    else: st.info("En attente de données...")
+        else:
+            st.info("Accumulation des vents en cours...")
+    else:
+        st.info("En attente de données...")
 
 with tab3:
     st.subheader("🌧️ Suivi de la Pluviométrie")
@@ -355,7 +390,13 @@ with tab4:
 with tab5:
     st.subheader("📈 Historique Chronologique")
     if not df_hist.empty:
-        st.plotly_chart(px.line(df_hist, x="timestamp", y=["temperature", "ressenti"], title="Températures"), use_container_width=True)
+        # Filtrer proprement les températures aberrantes pour les graphes d'historique
+        df_plot = df_hist.copy()
+        df_plot["temperature"] = pd.to_numeric(df_plot["temperature"], errors="coerce")
+        df_plot["ressenti"] = pd.to_numeric(df_plot["ressenti"], errors="coerce")
+        df_plot.loc[(df_plot["temperature"] < -30) | (df_plot["temperature"] > 50), "temperature"] = np.nan
+
+        st.plotly_chart(px.line(df_plot, x="timestamp", y=["temperature", "ressenti"], title="Températures"), use_container_width=True)
         st.plotly_chart(px.line(df_hist, x="timestamp", y="pression", title="Pression atmosphérique"), use_container_width=True)
     else: st.info("Historique vide pour le moment.")
 
