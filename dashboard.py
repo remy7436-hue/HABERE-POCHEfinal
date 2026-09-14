@@ -170,11 +170,11 @@ def prevision_zambretti(p, tendance):
     return "☀️ Temps beau, stable et sec" if p >= 1025 else "☁️ Temps changeant, passages nuageux"
 
 def interpreter_vent_local(degres, vitesse):
+    temp_deg = float(degres) if degres is not None and not pd.isna(degres) else 0.0
     if degres is None or pd.isna(degres) or vitesse < 3: return "Calme / Vent variable", "💤"
-    deg = float(degres)
-    if 315 <= deg or deg < 45: return "Bise / Vent de Nord : Assèchement, fraîcheur.", "🌬️"
-    elif 45 <= deg < 135: return "Vent d'Est : Flux continental stable.", "🌤️"
-    elif 135 <= deg < 225: return "Vent du Sud / Sud-Ouest : Doux, annonciateur de pluie/orages.", "⛈️"
+    if 315 <= temp_deg or temp_deg < 45: return "Bise / Vent de Nord : Assèchement, fraîcheur.", "🌬️"
+    elif 45 <= temp_deg < 135: return "Vent d'Est : Flux continental stable.", "🌤️"
+    elif 135 <= temp_deg < 225: return "Vent du Sud / Sud-Ouest : Doux, annonciateur de pluie/orages.", "⛈️"
     return "Vent d'Ouest / Nord-Ouest : Traîne, averses.", "🌧️"
 
 
@@ -213,22 +213,15 @@ def get_val(group, key):
         val = node
     return to_float(val)
 
-# DIAGNOSTIC BRUT : On récupère la valeur exacte sans transformation
-temp_brute_raw = ds.get("outdoor", {}).get("temperature", {})
-st.warning(f"🔍 DEBUG BRUT API Ecowitt (outdoor->temperature) : {temp_brute_raw}")
-
+# CONVERSION CORRIGÉE : L'API renvoie des dixièmes de Fahrenheit (ex: 691 -> 69.1 °F -> ~20.6 °C)
 temp_brute = get_val("outdoor", "temperature")
 
-# Ajustement direct si l'API envoie des dixièmes de Fahrenheit ou Celsius
-# Si la température brute dépasse 100, c'est soit du dixième de °C (ex: 211 -> 21.1°C), soit du Fahrenheit (ex: 68 -> 20°C)
 if temp_brute > 100:
-    # Si c'est autour de 200, c'est du dixième de °C (comme ton 211) -> 21.1°C
-    if temp_brute > 150:
-        temp = round(temp_brute / 10.0, 1)
-    else:
-        # Si c'est du Fahrenheit (ex: 68°F = 20°C)
-        temp = round((temp_brute - 32) * 5.0 / 9.0, 1)
+    # C'est du Fahrenheit en dixièmes (ex: 691 -> 69.1 °F)
+    temp_fahrenheit = temp_brute / 10.0
+    temp = round((temp_fahrenheit - 32) * 5.0 / 9.0, 1)
 else:
+    # Si c'est déjà en Celsius direct
     temp = round(temp_brute, 1)
 
 humidity = get_val("outdoor", "humidity")
