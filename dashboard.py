@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 import sqlite3
 import os
+import base64
 
 # 1. Configuration de la page
 st.set_page_config(
@@ -16,9 +17,9 @@ st.set_page_config(
 )
 
 # 2. Récupération des secrets Ecowitt
-ECOWITT_API_KEY = st.secrets.get("ECOWITT_API_KEY", " e7c7ac1f-9f8d-41b7-8d4e-ff02bafac937")
-ECOWITT_APP_KEY = st.secrets.get("ECOWITT_APP_KEY", "9A10455F8BBE5DFFEA6E970BF213172D")
-GW3000_MAC = st.secrets.get("GW3000_MAC", "00:70:07:C2:E4:93")
+ECOWITT_API_KEY = st.secrets.get("ECOWITT_API_KEY", "")
+ECOWITT_APP_KEY = st.secrets.get("ECOWITT_APP_KEY", "")
+GW3000_MAC = st.secrets.get("GW3000_MAC", "")
 
 DB_NAME = "meteo_historique.db"
 
@@ -443,50 +444,53 @@ with tab4:
 
         fig_pano = go.Figure()
 
-        # Intégration de la vraie photo originale en fond
+        # Intégration robuste de l'image de fond via encodage Base64
         image_path = "PXL_20260913_173725056.MP.jpg"
         if os.path.exists(image_path):
+            with open(image_path, "rb") as img_file:
+                encoded_string = base64.b64encode(img_file.read()).decode()
+            img_src = f"data:image/jpeg;base64,{encoded_string}"
+
             fig_pano.add_layout_image(
                 dict(
-                    source=image_path,
-                    xref="paper",
-                    yref="paper",
+                    source=img_src,
+                    xref="x",
+                    yref="y",
                     x=0,
-                    y=1,
-                    sizex=1,
-                    sizey=1,
+                    y=3000,
+                    sizex=10,
+                    sizey=2600,
                     sizing="stretch",
-                    opacity=0.9,
+                    opacity=0.85,
                     layer="below"
                 )
             )
         else:
-            st.warning(f"⚠️ Image de fond introuvable : `{image_path}`")
+            st.warning(f"⚠️ Image de fond introuvable : `{image_path}` (vérifie qu'elle est bien présente dans le dossier)")
 
         # Repère de la base des cumulus en surimpression
         fig_pano.add_hline(
             y=altitude_cumulus_mer,
             line_dash="dash",
-            line_color="rgba(255, 255, 255, 0.9)",
+            line_color="rgba(255, 50, 50, 0.9)",
             annotation_text=f"☁️ Base des Cumulus ({altitude_cumulus_mer} m)",
             annotation_position="top right",
-            annotation_font=dict(size=14, color="white", family="Arial", weight="bold")
+            annotation_font=dict(size=14, color="red", family="Arial", weight="bold")
         )
 
         fig_pano.update_layout(
             title="Position estimée des nuages par rapport aux reliefs locaux",
-            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-0.5, 9.5]),
             yaxis=dict(
                 title="Altitude (mètres)",
                 range=[400, 3000],
-                gridcolor="rgba(255, 255, 255, 0.3)",
-                tickfont=dict(color="white")
+                gridcolor="rgba(200, 200, 200, 0.3)",
+                tickfont=dict(color="black")
             ),
-            plot_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(255,255,255,1)",
             paper_bgcolor="rgba(0,0,0,0)",
             height=550,
             margin=dict(l=60, r=20, t=40, b=30),
-            font=dict(color="white"),
             showlegend=False
         )
         st.plotly_chart(fig_pano, use_container_width=True)
