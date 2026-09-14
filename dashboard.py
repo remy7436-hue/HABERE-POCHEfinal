@@ -295,7 +295,8 @@ with tab1:
     c8.metric("Direction", f"{degres_vers_cardinal(wind_dir)} ({int(wind_dir)}°)")
 
     st.markdown("---")
-    st.metric("Pluie du jour", f"{rain_day} mm")
+    c5_b, _ = st.columns(2)
+    c5_b.metric("Pluie du jour", f"{rain_day} mm")
 
     st.markdown("### 🏆 Extrêmes du jour")
     e1, e2, e3, e4 = st.columns(4)
@@ -409,9 +410,19 @@ with tab5:
         df_plot.loc[(df_plot["ressenti"] < -40) | (df_plot["ressenti"] > 60), "ressenti"] = np.nan
         df_plot.loc[(df_plot["pression"] < 900) | (df_plot["pression"] > 1100), "pression"] = np.nan
 
-        # Graphique Température & Ressenti (Spline)
-        fig_temp = px.line(df_plot, x="timestamp", y=["temperature", "ressenti"], title="Températures et Ressenti (°C)")
-        fig_temp.update_traces(line_shape="spline")
+        # Graphique Température & Ressenti robuste (Go.Figure)
+        fig_temp = go.Figure()
+        fig_temp.add_trace(go.Scatter(
+            x=df_plot["timestamp"], y=df_plot["temperature"],
+            mode="lines", name="Température (°C)",
+            line=dict(shape="spline", color="rgb(31, 119, 180)", width=2)
+        ))
+        fig_temp.add_trace(go.Scatter(
+            x=df_plot["timestamp"], y=df_plot["ressenti"],
+            mode="lines", name="Ressenti (°C)",
+            line=dict(shape="spline", color="rgb(174, 199, 232)", width=2, dash="dash")
+        ))
+        fig_temp.update_layout(title="Températures et Ressenti (°C)", xaxis_title="Temps", yaxis_title="°C", height=400)
         st.plotly_chart(fig_temp, use_container_width=True)
 
         # Graphique Humidité (Spline)
