@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 import os
 import base64
+import time
 
 # 1. Configuration de la page
 st.set_page_config(
@@ -69,7 +70,6 @@ def sauvegarder_mesure_csv(timestamp, heure, temp, ressenti, humidite, pression,
             return df # Déjà enregistré pour cette minute
 
     df = pd.concat([df, nouvelle_ligne], ignore_index=True)
-    # Garde par exemple les 50 000 dernières mesures pour éviter que le fichier devienne trop lourd
     if len(df) > 50000:
         df = df.tail(50000)
 
@@ -390,11 +390,9 @@ with tab2:
     if not df_hist.empty and "direction" in df_hist.columns and "vent" in df_hist.columns:
         df_rose = df_hist.dropna(subset=["direction", "vent"]).copy()
         if not df_rose.empty:
-            # Regroupement par secteurs cardinaux pour une vraie rose des vents lisible en étoile
             df_rose["secteur"] = df_rose["direction"].apply(degres_vers_cardinal)
             df_grouped = df_rose.groupby("secteur")["vent"].agg(["count", "mean"]).reset_index()
 
-            # Tri ordonné des secteurs de la rose des vents
             ordre_dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
                           "S", "SSO", "SO", "OSO", "O", "ONO", "NO", "NNO"]
             df_grouped["secteur"] = pd.Categorical(df_grouped["secteur"], categories=ordre_dirs, ordered=True)
@@ -461,7 +459,6 @@ with tab4:
 
         fig_pano = go.Figure()
 
-        # Intégration de l'image de fond via encodage Base64
         image_path = "PXL_20260913_173725056.MP.jpg"
         if os.path.exists(image_path):
             with open(image_path, "rb") as img_file:
@@ -483,9 +480,8 @@ with tab4:
                 )
             )
         else:
-            st.warning(f"⚠️ Image de fond introuvable : `{image_path}` (vérifie qu'elle est bien présente dans le dossier)")
+            st.warning(f"⚠️ Image de fond introuvable : `{image_path}`")
 
-        # Repère de la base des cumulus en surimpression
         fig_pano.add_hline(
             y=altitude_cumulus_mer,
             line_dash="dash",
@@ -565,3 +561,7 @@ with tab6:
             st.caption("Interprétation empirique basée sur l'orientation des flux dans notre configuration de moyenne montagne à Habère-Poche.")
     else:
         st.info("Données de vent insuffisantes pour l'analyse locale.")
+
+# --- Rafraîchissement automatique toutes les 5 minutes (300 secondes) ---
+time.sleep(300)
+st.rerun()
