@@ -314,35 +314,39 @@ with tab2:
         df_rose = df_rose.dropna(subset=["direction", "vent"])
 
         if not df_rose.empty:
-            ordres_secteurs = [
-                "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-                "S", "SSO", "SO", "OSO", "O", "ONO", "NO", "NNO"
-            ]
+            bins = [-11.25 + i * 22.5 for i in range(17)]
+            labels_deg = [i * 22.5 for i in range(16)]
+            noms_secteurs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSO", "SO", "OSO", "O", "ONO", "NO", "NNO"]
 
-            df_rose["secteur"] = df_rose["direction"].apply(degres_vers_cardinal)
+            df_rose["bin_deg"] = pd.cut(df_rose["direction"] % 360, bins=bins, labels=labels_deg, include_lowest=True)
+            df_rose["bin_deg"] = df_rose["bin_deg"].astype(float)
 
-            df_grp = df_rose.groupby("secteur").agg(
+            df_grp = df_rose.groupby("bin_deg").agg(
                 count=("vent", "count"),
                 mean=("vent", "mean")
-            ).reindex(ordres_secteurs, fill_value=0).reset_index()
+            ).reindex(labels_deg, fill_value=0).reset_index()
 
-            # Largeur ajustée à 15 pour des barres bien distinctes
+            df_grp["nom"] = noms_secteurs
+
             fig_rose = go.Figure(go.Barpolar(
                 r=df_grp["count"],
-                theta=df_grp["secteur"],
-                width=15,
+                theta=df_grp["bin_deg"],
+                width=22.5,
                 marker=dict(
                     color=df_grp["mean"],
                     colorscale="Blues",
                     showscale=True,
                     colorbar=dict(title="Vent moyen (km/h)")
-                )
+                ),
+                text=df_grp["nom"],
+                hoverinfo="text+r"
             ))
 
             fig_rose.update_layout(
                 polar=dict(
                     angularaxis=dict(
-                        categoryarray=ordres_secteurs,
+                        tickvals=labels_deg,
+                        ticktext=noms_secteurs,
                         direction="clockwise",
                         rotation=90
                     )
