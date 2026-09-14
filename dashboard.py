@@ -10,7 +10,7 @@ import base64
 import time
 import pytz
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 import traceback
 
 # 1. Configuration de la page
@@ -28,17 +28,21 @@ GW3000_MAC = st.secrets.get("GW3000_MAC", "")
 SHEET_NAME = "Historique_Meteo_Habere_Poche"
 
 
-# 3. Connexion au Google Sheet (Mise en cache propre)
+# 3. Connexion au Google Sheet (Mise en cache propre et sécurisée)
 @st.cache_resource
 def connecter_google_sheet():
     scope = [
-        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
     gcp_creds = dict(st.secrets["gcp_service_account"])
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(gcp_creds, scope)
+
+    # Nettoyage automatique des retours à la ligne de la clé privée
+    if "private_key" in gcp_creds:
+        gcp_creds["private_key"] = gcp_creds["private_key"].replace("\\n", "\n")
+
+    creds = Credentials.from_service_account_info(gcp_creds, scopes=scope)
     client = gspread.authorize(creds)
-    # Si ton onglet s'appelle différemment de sheet1, change le ici (ex: worksheet("Feuille 1"))
     sheet = client.open(SHEET_NAME).sheet1
     return sheet
 
@@ -89,7 +93,6 @@ def sauvegarder_mesure_gsheet(timestamp, heure, temp, ressenti, humidite, pressi
         sheet = connecter_google_sheet()
         sheet.append_row(nouvelle_ligne)
     except Exception as e:
-        # Affiche l'erreur exacte et la trace technique complète pour comprendre le blocage
         st.error(f"❌ Erreur critique d'écriture Google Sheet : {str(e)}")
         st.code(traceback.format_exc())
 
