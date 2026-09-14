@@ -8,6 +8,8 @@ from datetime import datetime
 import os
 import base64
 import time
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 # 1. Configuration de la page
 st.set_page_config(
@@ -16,28 +18,46 @@ st.set_page_config(
     layout="wide"
 )
 
-# 2. Récupération des secrets Ecowitt
+# 2. Récupération des secrets (Ecowitt + Google Sheets)
 ECOWITT_API_KEY = st.secrets.get("ECOWITT_API_KEY", "")
 ECOWITT_APP_KEY = st.secrets.get("ECOWITT_APP_KEY", "")
 GW3000_MAC = st.secrets.get("GW3000_MAC", "")
 
-CSV_FILENAME = "historique_meteo.csv"
+SHEET_NAME = "Historique_Meteo_Habere_Poche"
 
 
-# 3. Gestion de l'historique persistant par fichier CSV
-def charger_historique_csv():
-    if os.path.exists(CSV_FILENAME):
-        try:
-            df = pd.read_csv(CSV_FILENAME)
+# 3. Connexion au Google Sheet
+@st.cache_resource
+pyt_connexion_cache = None # Pour garder la session active proprement
+def connecter_google_sheet():
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    # Récupération des secrets GCP configurés dans Streamlit Cloud
+    gcp_creds = dict(st.secrets["gcp_service_account"])
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(gcp_creds, scope)
+    client = gspread.authorize(creds)
+    sheet = client.open(SHEET_NAME).sheet1
+    return sheet
+
+
+def charger_historique_gsheet():
+    try:
+        sheet = connecter_google_sheet()
+        data = sheet.get_all_records()
+        if data:
+            df = pd.DataFrame(data)
             if not df.empty and "timestamp" in df.columns:
                 df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
                 df = df.sort_values("timestamp").reset_index(drop=True)
                 if "pluie" not in df.columns:
                     df["pluie"] = 0.0
                 return df
-        except Exception:
-            pass
-    # Structure par défaut si le fichier n'existe pas encore
+    except Exception as e:
+        st.warning(f"⚠️ Connexion au Google Sheet en cours ou échec temporaire : {e}")
+
+    # Structure par défaut si le sheet est vide ou inaccessible
     return pd.DataFrame(columns=[
         "timestamp", "heure", "temperature", "ressenti",
         "humidite", "pression", "pression_abs", "vent",
@@ -45,11 +65,40 @@ def charger_historique_csv():
     ])
 
 
-def sauvegarder_mesure_csv(timestamp, heure, temp, ressenti, humidite, pression, pression_abs, vent, rafale, direction, pluie):
-    df = charger_historique_csv()
+def sauvegarder_mesure_gsheet(timestamp, heure, temp, ressenti, humidite, pression, pression_abs, vent, rafale, direction, pluie):
+    df = charger_historique_gsheet()
 
-    nouvelle_ligne = pd.DataFrame([{
-        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+    actuel_temps = timestamp.strftime("%Y-%m-%d %H:%M")
+
+    # Évite les doublons stricts basés sur la minute exacte
+    if not df.empty and "timestamp" in df.columns:
+        dernier_temps = pd.to_datetime(df.iloc[-1]["timestamp"]).strftime("%Y-%m-%d %H:%M") if pd.notnull(df.iloc[-1]["timestamp"]) else ""
+        if dernier_temps == actuel_temps:
+            return df # Déjà enregistré pour cette minute
+
+    nouvelle_ligne = [
+        timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        heure,
+        temp,
+        ressenti,
+        humidite,
+        pression,
+        pression_abs,
+        vent,
+        rafale,
+        direction,
+        pluie
+    ]
+
+    try:
+        sheet = connecter_google_sheet()
+        sheet.append_row(nouvelle_ligne)
+    except Exception as e:
+        st.error(préciser_erreur := f"Erreur lors de l'écriture dans le Google Sheet : {e}")
+
+    # Ajout dans le DataFrame local pour affichage immédiat
+    nouvelle_df = pd.DataFrame([{
+        "timestamp": timestamp,
         "heure": heure,
         "temperature": temp,
         "ressenti": ressenti,
@@ -61,19 +110,7 @@ def sauvegarder_mesure_csv(timestamp, heure, temp, ressenti, humidite, pression,
         "direction": direction,
         "pluie": pluie
     }])
-
-    # Évite les doublons stricts basés sur la minute exacte
-    if not df.empty:
-        dernier_temps = df.iloc[-1]["timestamp"].strftime("%Y-%m-%d %H:%M") if pd.notnull(df.iloc[-1]["timestamp"]) else ""
-        actuel_temps = timestamp.strftime("%Y-%m-%d %H:%M")
-        if dernier_temps == actuel_temps:
-            return df # Déjà enregistré pour cette minute
-
-    df = pd.concat([df, nouvelle_ligne], ignore_index=True)
-    if len(df) > 50000:
-        df = df.tail(50000)
-
-    df.to_csv(CSV_FILENAME, index=False)
+    df = pd.concat([df, nouvelle_df], ignore_index=True)
     return df
 
 
@@ -288,9 +325,9 @@ current_time_str = datetime.now().strftime("%H:%M:%S")
 current_timestamp = datetime.now()
 
 
-# 6. Sauvegarde immédiate dans le fichier CSV persistant
+# 6. Sauvegarde immédiate dans le Google Sheet
 if temp is not None:
-    df_hist = sauvegarder_mesure_csv(
+    df_hist = sauvegarder_mesure_gsheet(
         current_timestamp, current_time_str, float(temp),
         float(temp_ressentie) if temp_ressentie is not None else float(temp),
         float(humidity) if humidity is not None else 0.0,
@@ -302,13 +339,13 @@ if temp is not None:
         float(rain_day) if rain_day is not None else 0.0
     )
 else:
-    df_hist = charger_historique_csv()
+    df_hist = charger_historique_gsheet()
 
 delta_temp, delta_hum, delta_press = 0.0, 0.0, 0.0
 if len(df_hist) >= 2:
-    delta_temp = round(df_hist.iloc[-1]["temperature"] - df_hist.iloc[-2]["temperature"], 1)
-    delta_hum = round(df_hist.iloc[-1]["humidite"] - df_hist.iloc[-2]["humidite"], 1)
-    delta_press = round(df_hist.iloc[-1]["pression"] - df_hist.iloc[-2]["pression"], 2)
+    delta_temp = round(float(df_hist.iloc[-1]["temperature"]) - float(df_hist.iloc[-2]["temperature"]), 1)
+    delta_hum = round(float(df_hist.iloc[-1]["humidite"]) - float(df_hist.iloc[-2]["humidite"]), 1)
+    delta_press = round(float(df_hist.iloc[-1]["pression"]) - float(df_hist.iloc[-2]["pression"]), 2)
 
 
 # 7. Gestion des extrêmes du jour
@@ -318,8 +355,7 @@ if "initialized" not in st.session_state:
 max_temp, min_temp, max_temp_time, min_temp_time = "--", "--", "", ""
 max_wind, max_gust = 0.0, 0.0
 
-if not df_hist.empty:
-    # Sécurité : conversion explicite en datetime pour l'accesseur .dt
+if not df_hist.empty and "timestamp" in df_hist.columns:
     df_hist["timestamp"] = pd.to_datetime(df_hist["timestamp"], errors="coerce")
 
     today_str = current_timestamp.strftime("%Y-%m-%d")
@@ -327,6 +363,10 @@ if not df_hist.empty:
     df_today = df_hist[date_str_series == today_str]
 
     if not df_today.empty:
+        df_today["temperature"] = pd.to_numeric(df_today["temperature"], errors="coerce")
+        df_today["vent"] = pd.to_numeric(df_today["vent"], errors="coerce")
+        df_today["rafale"] = pd.to_numeric(df_today["rafale"], errors="coerce")
+
         max_t_row = df_today.loc[df_today["temperature"].idxmax()]
         min_t_row = df_today.loc[df_today["temperature"].idxmin()]
         max_temp = max_t_row["temperature"]
@@ -338,7 +378,7 @@ if not df_hist.empty:
 
 tendance_baro = 0.0
 if len(df_hist) >= 2:
-    tendance_baro = round(df_hist.iloc[-1]["pression"] - df_hist.iloc[0]["pression"], 2)
+    tendance_baro = round(float(df_hist.iloc[-1]["pression"]) - float(df_hist.iloc[0]["pression"]), 2)
 
 prevision_texte = prevision_zambretti(pressure, tendance_baro)
 
@@ -382,13 +422,14 @@ with tab1:
     e3.metric("Vent max mesuré", f"{max_wind} km/h")
     e4.metric("Rafale la plus rapide", f"{max_gust} km/h")
 
-    st.caption(f"Dernière synchronisation cloud : **{current_time_str}** | Points historiques cumulés (CSV) : **{len(df_hist)}**")
+    st.caption(f"Dernière synchronisation cloud : **{current_time_str}** | Lignes stockées dans le Google Sheet : **{len(df_hist)}**")
 
 # --- ONGLET 2 : Rose des Vents ---
 with tab2:
-    st.subheader("🧭 Rose des Vents Agrégée (Historique Persistant)")
+    st.subheader("🧭 Rose des Vents Agrégée (Google Sheet)")
     if not df_hist.empty and "direction" in df_hist.columns and "vent" in df_hist.columns:
         df_rose = df_hist.dropna(subset=["direction", "vent"]).copy()
+        df_rose["vent"] = pd.to_numeric(df_rose["vent"], errors="coerce")
         if not df_rose.empty:
             df_rose["secteur"] = df_rose["direction"].apply(degres_vers_cardinal)
             df_grouped = df_rose.groupby("secteur")["vent"].agg(["count", "mean"]).reset_index()
@@ -415,7 +456,7 @@ with tab2:
                 height=520, margin=dict(t=40, b=40, l=40, r=40)
             )
             st.plotly_chart(fig_rose, use_container_width=True)
-            st.info(f"📊 Basé sur **{len(df_rose)}** mesures cumulées dans le fichier d'historique.")
+            st.info(f"📊 Basé sur **{len(df_rose)}** mesures cumulées dans ton Google Sheet.")
         else:
             st.info("Données de vent en cours d'accumulation...")
     else:
@@ -426,6 +467,7 @@ with tab3:
     st.subheader("🌧️ Suivi de la Pluviométrie")
     if not df_hist.empty and "pluie" in df_hist.columns:
         df_rain = df_hist.copy()
+        df_rain["pluie"] = pd.to_numeric(df_rain["pluie"], errors="coerce")
         df_rain["date_seule"] = df_rain["timestamp"].dt.date
         df_rain["mois"] = df_rain["timestamp"].dt.strftime("%Y-%m")
 
@@ -448,7 +490,7 @@ with tab3:
     else:
         st.info("Accumulation des données de pluie en cours...")
 
-# --- ONGLET 4 : Plancher Nuageux & Paysage (Immersion Photo) ---
+# --- ONGLET 4 : Plancher Nuageux & Paysage ---
 with tab4:
     st.subheader("🏔️ Visualisation du Plancher Nuageux sur les Crêtes")
     if base_cumulus_sol is not None:
@@ -513,8 +555,14 @@ with tab4:
 
 # --- ONGLET 5 : Historique & Tendances Graphiques ---
 with tab5:
-    st.subheader("📈 Suivi Chronologique (Persistant CSV)")
+    st.subheader("📈 Suivi Chronologique (Google Sheet)")
     if not df_hist.empty:
+        df_hist["temperature"] = pd.to_numeric(df_hist["temperature"], errors="coerce")
+        df_hist["ressenti"] = pd.to_numeric(df_hist["ressenti"], errors="coerce")
+        df_hist["humidite"] = pd.to_numeric(df_hist["humidite"], errors="coerce")
+        df_hist["pression"] = pd.to_numeric(df_hist["pression"], errors="coerce")
+        df_hist["pression_abs"] = pd.to_numeric(df_hist["pression_abs"], errors="coerce")
+
         fig_temp = px.line(df_hist, x="timestamp", y=["temperature", "ressenti"], markers=False, title="🌡️ Température et Ressenti")
         st.plotly_chart(fig_temp, use_container_width=True)
 
@@ -524,7 +572,7 @@ with tab5:
         fig_press = px.line(df_hist, x="timestamp", y=["pression", "pression_abs"], markers=False, title="BAROMÈTRE — Pressions")
         st.plotly_chart(fig_press, use_container_width=True)
     else:
-        st.info("📊 En attente de points d'historique...")
+        st.info("📊 En attente de points d'historique dans le Google Sheet...")
 
 # --- ONGLET 6 : Prévisions & Analyse ---
 with tab6:
