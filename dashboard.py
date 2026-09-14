@@ -213,17 +213,23 @@ def get_val(group, key):
         val = node
     return to_float(val)
 
+# DIAGNOSTIC BRUT : On récupère la valeur exacte sans transformation
+temp_brute_raw = ds.get("outdoor", {}).get("temperature", {})
+st.warning(f"🔍 DEBUG BRUT API Ecowitt (outdoor->temperature) : {temp_brute_raw}")
+
 temp_brute = get_val("outdoor", "temperature")
 
-# Gestion intelligente de la température Ecowitt (dième de degré ou Fahrenheit brut)
+# Ajustement direct si l'API envoie des dixièmes de Fahrenheit ou Celsius
+# Si la température brute dépasse 100, c'est soit du dixième de °C (ex: 211 -> 21.1°C), soit du Fahrenheit (ex: 68 -> 20°C)
 if temp_brute > 100:
-    temp = round((temp_brute - 32) * 5.0 / 9.0, 1) if temp_brute > 120 else round(temp_brute / 10.0, 1)
+    # Si c'est autour de 200, c'est du dixième de °C (comme ton 211) -> 21.1°C
+    if temp_brute > 150:
+        temp = round(temp_brute / 10.0, 1)
+    else:
+        # Si c'est du Fahrenheit (ex: 68°F = 20°C)
+        temp = round((temp_brute - 32) * 5.0 / 9.0, 1)
 else:
     temp = round(temp_brute, 1)
-
-# Sécurité ultime : si la température dépasse 50°C à 900m, on divise par 10
-if temp > 50:
-    temp = round(temp / 10.0, 1)
 
 humidity = get_val("outdoor", "humidity")
 
@@ -373,7 +379,7 @@ with tab6:
         st.success(f"### Tendance : **{prevision_texte}**")
     st.markdown("---")
     g1, g2, g3 = st.columns(3)
-    g1.metric("Risque Gel", risque_gel)
+    g1.metric("Risque gel", risque_gel)
     g2.metric("Évapotranspiration (ETP)", f"{etp_val} mm/j")
     g3.metric("Point de rosée", f"{point_rosee} °C")
 
