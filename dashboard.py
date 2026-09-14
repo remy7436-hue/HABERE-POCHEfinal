@@ -5,6 +5,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
+from math import floor, ceil
 import os
 import base64
 import time
@@ -71,7 +72,7 @@ def charger_historique_gsheet():
                         if col in df.columns:
                             df[col] = pd.to_numeric(df[col], errors="coerce")
 
-                    df = df.sort_values("timestamp").reset_index(drop=True)
+                    df = df.sort_values("timestamp").drop_duplicates(subset=["timestamp"]).reset_index(drop=True)
                     if "pluie" not in df.columns:
                         df["pluie"] = 0.0
                     return df
@@ -410,11 +411,17 @@ with tab5:
         df_plot.loc[(df_plot["ressenti"] < -40) | (df_plot["ressenti"] > 60), "ressenti"] = np.nan
         df_plot.loc[(df_plot["pression"] < 900) | (df_plot["pression"] > 1100), "pression"] = np.nan
 
-        # Graphique Température & Ressenti robuste (Go.Figure)
+        # Calcul dynamique des bornes Y pour la température et le ressenti
+        t_min = min(df_plot["temperature"].min(), df_plot["ressenti"].min())
+        t_max = max(df_plot["temperature"].max(), df_plot["ressenti"].max())
+        y_min = floor(t_min - 2) if not pd.isna(t_min) else 0
+        y_max = ceil(t_max + 2) if not pd.isna(t_max) else 25
+
+        # Graphique Température & Ressenti
         fig_temp = go.Figure()
         fig_temp.add_trace(go.Scatter(
             x=df_plot["timestamp"], y=df_plot["temperature"],
-            mode="lines", name="Température (°C)",
+            mode="lines+markers", name="Température (°C)",
             line=dict(shape="spline", color="rgb(31, 119, 180)", width=2)
         ))
         fig_temp.add_trace(go.Scatter(
@@ -422,17 +429,25 @@ with tab5:
             mode="lines", name="Ressenti (°C)",
             line=dict(shape="spline", color="rgb(174, 199, 232)", width=2, dash="dash")
         ))
-        fig_temp.update_layout(title="Températures et Ressenti (°C)", xaxis_title="Temps", yaxis_title="°C", height=400)
+        fig_temp.update_layout(
+            title="Températures et Ressenti (°C)",
+            xaxis_title="Temps",
+            yaxis_title="°C",
+            yaxis=dict(range=[y_min, y_max]),
+            height=400
+        )
         st.plotly_chart(fig_temp, use_container_width=True)
 
-        # Graphique Humidité (Spline)
+        # Graphique Humidité
         fig_hum = px.line(df_plot, x="timestamp", y="humidite", title="Humidité relative (%)")
         fig_hum.update_traces(line_shape="spline", line_color="teal")
+        fig_hum.update_layout(yaxis=dict(autorange=True))
         st.plotly_chart(fig_hum, use_container_width=True)
 
-        # Graphique Pression atmosphérique (Spline)
+        # Graphique Pression atmosphérique
         fig_press = px.line(df_plot, x="timestamp", y="pression", title="Pression atmosphérique (hPa)")
         fig_press.update_traces(line_shape="spline", line_color="rebeccapurple")
+        fig_press.update_layout(yaxis=dict(autorange=True))
         st.plotly_chart(fig_press, use_container_width=True)
 
         # Graphique Direction du vent
