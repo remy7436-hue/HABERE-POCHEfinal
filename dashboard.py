@@ -214,8 +214,9 @@ def get_val(group, key):
     return to_float(val)
 
 temp = get_val("outdoor", "temperature")
+# Correction du format de température Ecowitt (ex: 211 -> 21.1 °C)
 if temp > 60:
-    temp = round((temp - 32) * 5.0 / 9.0, 1)
+    temp = round(temp / 10.0, 1)
 
 humidity = get_val("outdoor", "humidity")
 
