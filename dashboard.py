@@ -98,14 +98,14 @@ def sauvegarder_mesure_gsheet(timestamp, heure, temp, ressenti, humidite, pressi
     return df
 
 
-# 4. Fonctions utilitaires & calculs robustes
+# 4. Fonctions utilitaires & conversion d'unités Ecowitt (F -> C si besoin)
 def to_float(val):
     if val is None or val == "":
         return 0.0
     if isinstance(val, (int, float)):
         return float(val)
     s = str(val).lower()
-    for unit in ["°c", "km/h", "hpa", "mm", "%", "in"]:
+    for unit in ["°c", "°f", "km/h", "mph", "hpa", "inHg", "in", "mm", "%"]:
         s = s.replace(unit, "")
     s = s.replace(",", ".").strip()
     try:
@@ -167,10 +167,11 @@ def interpreter_vent_local(degres, vitesse):
     return "Vent d'Ouest / Nord-Ouest : Traîne, averses.", "🌧️"
 
 
-# 5. Récupération API Ecowitt
+# 5. Récupération API Ecowitt (avec forçage de l'unité métrique si l'API le permet)
 def fetch_ecowitt_data(app_key, api_key, mac):
     url = "https://api.ecowitt.net/api/v3/device/real_time"
-    params = {"application_key": app_key, "api_key": api_key, "mac": mac, "call_by": "all"}
+    # On passe explicitement unit=1 pour forcer le système métrique (Celsius, hPa, km/h, mm)
+    params = {"application_key": app_key, "api_key": api_key, "mac": mac, "call_by": "all", "unit": "1"}
     try:
         res = requests.get(url, params=params, timeout=8)
         if res.status_code == 200: return res.json()
@@ -203,9 +204,21 @@ def get_val(group, key):
     return to_float(val)
 
 temp = get_val("outdoor", "temperature")
+# Sécurité anti-Fahrenheit si l'API renvoie quand même du Fahrenheit (> 50 alors qu'on est en montagne)
+if temp > 60:
+    temp = round((temp - 32) * 5.0 / 9.0, 1)
+
 humidity = get_val("outdoor", "humidity")
+
 pressure = get_val("pressure", "relative")
+# Sécurité si la pression arrive en inHg (ex: ~30 inHg au lieu de ~1020 hPa)
+if pressure < 50:
+    pressure = round(pressure * 33.8639, 1)
+
 pressure_abs = get_val("pressure", "absolute")
+if pressure_abs < 50:
+    pressure_abs = round(pressure_abs * 33.8639, 1)
+
 wind_speed = get_val("wind", "wind_speed")
 wind_gust = get_val("wind", "wind_gust")
 wind_dir = get_val("wind", "wind_direction")
@@ -219,7 +232,7 @@ timezone = pytz.timezone("Europe/Paris")
 current_timestamp = datetime.now(timezone)
 current_time_str = current_timestamp.strftime("%H:%M:%S")
 
-# Sauvegarde dans le Google Sheet
+# Sauvegarde propre dans le Google Sheet
 df_hist = sauvegarder_mesure_gsheet(
     current_timestamp, current_time_str, temp, temp_ressentie,
     humidity, pressure, pressure_abs, wind_speed, wind_gust, wind_dir, rain_day
