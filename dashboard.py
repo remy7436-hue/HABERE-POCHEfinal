@@ -28,7 +28,7 @@ GW3000_MAC = st.secrets.get("GW3000_MAC", "")
 SHEET_NAME = "Historique_Meteo_Habere_Poche"
 
 
-# 3. Connexion au Google Sheet
+# 3. Connexion au Google Sheet (robuste PEM / Base64)
 @st.cache_resource
 def connecter_google_sheet():
     scope = [
@@ -38,8 +38,13 @@ def connecter_google_sheet():
     gcp_creds = dict(st.secrets["gcp_service_account"])
 
     if "private_key" in gcp_creds:
-        # S'assure que les retours à la ligne sont bien pris en compte
-        gcp_creds["private_key"] = str(gcp_creds["private_key"]).replace("\\n", "\n")
+        key_val = str(gcp_creds["private_key"]).strip()
+        if not key_val.startswith("-----BEGIN"):
+            try:
+                key_val = base64.b64decode(key_val).decode("utf-8")
+            except Exception:
+                pass
+        gcp_creds["private_key"] = key_val.replace("\\n", "\n")
 
     creds = Credentials.from_service_account_info(gcp_creds, scopes=scope)
     client = gspread.authorize(creds)
