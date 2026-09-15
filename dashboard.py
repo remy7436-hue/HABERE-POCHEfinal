@@ -279,22 +279,82 @@ def analyser_risques_montagne(temp, humidite, pression):
   return risque, etp, round(dew_point, 1)
 
 
-def prevision_zambretti(p, tendance):
-  if p is None:
-    return "Données barométriques insuffisantes."
-  if tendance > 0.1:
+def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
+  """Calcule la tendance barométrique sur 3h glissantes pour lisser la volatilité
+
+  et propose une prévision professionnelle stabilisée.
+  """
+  if df_hist is None or len(df_hist) < 2 or "timestamp" not in df_hist.columns:
     return (
-        "☀️ Temps beau et stable (Anticyclone fort)"
-        if p >= 1030
-        else "🌤️ Beau temps persistant"
+        0.0,
+        "Stable (données insuffisantes)",
+        "Données barométriques en cours d'accumulation.",
     )
-  elif tendance < -0.1:
+
+  # Filtrer les lignes valides avec timestamp et pression
+  df_t = df_hist.dropna(subset=["timestamp", "pression"]).copy()
+  if len(df_t) < 2:
     return (
-        "⛈️ Dégradation rapide, pluie ou orages imminents"
-        if p < 1000
-        else "🌧️ Risque d'averses, temps pluvieux"
+        0.0,
+        "Stable",
+        "☀️ Temps beau, stable et sec"
+        if pression_actuelle >= 1025
+        else "☁️ Temps changeant",
     )
-  return "☀️ Temps beau, stable et sec" if p >= 1025 else "☁️ Temps changeant, passages nuageux"
+
+  dernier_temps = df_t["timestamp"].iloc[-1]
+  limite_3h = dernier_temps - pd.Timedelta(hours=3)
+
+  # Récupérer la pression il y a ~3h (ou la plus proche disponible)
+  df_3h = df_t[df_t["timestamp"] <= limite_3h]
+  if not df_3h.empty:
+    pression_ref = df_3h["pression"].iloc[-1]
+  else:
+    # Si on n'a pas encore 3h d'historique, on prend la plus ancienne dispo
+    pression_ref = df_t["pression"].iloc[0]
+
+  tendance_3h = round(float(pression_actuelle - pression_ref), 2)
+
+  # Qualification experte de la tendance 3h
+  if tendance_3h >= 1.5:
+    libelle_tendance = f"Forte hausse (+{tendance_3h} hPa / 3h) 📈"
+  elif 0.5 <= tendance_3h < 1.5:
+    libelle_tendance = f"Hausse lente (+{tendance_3h} hPa / 3h) ↗️"
+  elif -0.5 <= tendance_3h < 0.5:
+    libelle_tendance = f"Stable ({tendance_3h:+0.1f} hPa / 3h) ➡️"
+  elif -1.5 < tendance_3h <= -0.5:
+    libelle_tendance = f"Baisse modérée ({tendance_3h} hPa / 3h) ↘️"
+  else:
+    libelle_tendance = f"Forte baisse ({tendance_3h} hPa / 3h) 📉"
+
+  # Prévision professionnelle croisée (Pression + Tendance 3h)
+  if tendance_3h >= 1.0:
+    prevision = (
+        "☀️ Amélioration durable, conditions anticycloniques robustes."
+        if pression_actuelle >= 1015
+        else "🌤️ Hausse barométrique, accalmie progressive en vue."
+    )
+  elif tendance_3h <= -1.0:
+    prevision = (
+        "🌧️ Dégradation marquée confirmée, approche d'une perturbation active."
+        if pression_actuelle < 1015
+        else "⚠️ Baisse rapide de pression, changement de temps imminent."
+    )
+  else:
+    if pression_actuelle >= 1020:
+      prevision = (
+          "☀️ Temps stable, sec et bien établi sur le secteur de la Vallée"
+          " Verte."
+      )
+    elif pression_actuelle <= 1005:
+      prevision = (
+          "☁️ Conditions dépressionnaires persistantes, passages nuageux"
+          " fréquents."
+      )
+    else:
+      prevision = "☁️ Temps variable et de saison, alternance d'éclaircies."
+
+  return tendance_3h, libelle_tendance, prevision
 
 
 def interpreter_vent_local(degres, vitesse):
@@ -304,15 +364,16 @@ def interpreter_vent_local(degres, vitesse):
   if degres is None or pd.isna(degres) or vitesse < 3:
     return "Calme / Vent variable", "💤"
   if 315 <= temp_deg or temp_deg < 45:
-    return "Bise / Vent de Nord : Assèchement, fraîcheur.", "🌬️"
+    return "Bise / Vent de Nord : Assèchement, fraîcheur montagnarde.", "🌬️"
   elif 45 <= temp_deg < 135:
     return "Vent d'Est : Flux continental stable.", "🌤️"
   elif 135 <= temp_deg < 225:
     return (
-        "Vent du Sud / Sud-Ouest : Doux, annonciateur de pluie/orages.",
+        "Vent du Sud / Sud-Ouest : Doux, flux perturbé annonciateur de"
+        " précipitations.",
         "⛈️",
     )
-  return "Vent d'Ouest / Nord-Ouest : Traîne, averses.", "🌧️"
+  return "Vent d'Ouest / Nord-Ouest : Régime de traîne, averses possibles.", "🌧️"
 
 
 # 5. Récupération API Ecowitt
@@ -467,15 +528,10 @@ if not df_hist.empty and "timestamp" in df_hist.columns:
           df_today["vent"], errors="coerce"
       ).max(), pd.to_numeric(df_today["rafale"], errors="coerce").max()
 
-tendance_baro = (
-    round(
-        float(df_hist.iloc[-1]["pression"]) - float(df_hist.iloc[0]["pression"]),
-        2,
-    )
-    if len(df_hist) >= 2
-    else 0.0
+# Appel du moteur de prévision stabilisé sur 3h glissantes
+tendance_val, tendance_libelle, prevision_texte = (
+    calculer_tendance_et_prevision_robuste(df_hist, pressure)
 )
-prevision_texte = prevision_zambretti(pressure, tendance_baro)
 
 
 # 6. Onglets de l'application
@@ -825,8 +881,9 @@ with tab5:
 
 with tab6:
   st.subheader("🔮 Prévisions & Analyse de Moyenne Montagne")
+  st.info(f"📊 **Tendance Barométrique (3h glissantes) :** {tendance_libelle}")
   if pressure:
-    st.success(f"### Tendance : **{prevision_texte}**")
+    st.success(f"### Synthèse : **{prevision_texte}**")
   st.markdown("---")
   g1, g2, g3 = st.columns(3)
   g1.metric("Risque gel", risque_gel)
