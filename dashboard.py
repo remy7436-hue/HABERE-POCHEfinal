@@ -19,7 +19,7 @@ st.set_page_config(
     page_title="Météo Habère-Poche", page_icon="🏔️", layout="wide"
 )
 
-# 2. Application de styles CSS personnalisés pour un rendu professionnel
+# 2. Application de styles CSS personnalisés pour un rendu "Centre de Contrôle" moderne
 st.markdown("""
     <style>
     .main {
@@ -27,13 +27,19 @@ st.markdown("""
     }
     .stMetric {
         background-color: #ffffff;
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        padding: 16px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03);
         border: 1px solid #e2e8f0;
+        transition: transform 0.2s ease;
+    }
+    .stMetric:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05);
     }
     h1, h2, h3 {
         color: #1e293b;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -333,6 +339,7 @@ def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
             0.0,
             "Stable (données insuffisantes)",
             "Données barométriques en cours d'accumulation.",
+            "Analyse en attente",
         )
 
     df_t = df_hist.dropna(subset=["timestamp", "pression"]).copy()
@@ -340,9 +347,8 @@ def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
         return (
             0.0,
             "Stable",
-            "☀️ Temps beau, stable et sec"
-            if pression_actuelle >= 1025
-            else "☁️ Temps changeant",
+            "☀️ Temps beau, stable et sec" if pression_actuelle >= 1025 else "☁️ Temps changeant",
+            "Stabilité correcte",
         )
 
     dernier_temps = df_t["timestamp"].iloc[-1]
@@ -373,27 +379,26 @@ def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
             if pression_actuelle >= 1015
             else "🌤️ Hausse barométrique, accalmie progressive en vue."
         )
+        indice_confiance = "Élevée (Anticyclonique)"
     elif tendance_3h <= -1.0:
         prevision = (
             "🌧️ Dégradation marquée confirmée, approche d'une perturbation active."
             if pression_actuelle < 1015
             else "⚠️ Baisse rapide de pression, changement de temps imminent."
         )
+        indice_confiance = "Élevée (Passage perturbé)"
     else:
         if pression_actuelle >= 1020:
-            prevision = (
-                "☀️ Temps stable, sec et bien établi sur le secteur de la Vallée"
-                " Verte."
-            )
+            prevision = "☀️ Temps stable, sec et bien établi sur le secteur de la Vallée Verte."
+            indice_confiance = "Moyenne à Haute"
         elif pression_actuelle <= 1005:
-            prevision = (
-                "☁️ Conditions dépressionnaires persistantes, passages nuageux"
-                " fréquents."
-            )
+            prevision = "☁️ Conditions dépressionnaires persistantes, passages nuageux fréquents."
+            indice_confiance = "Moyenne"
         else:
             prevision = "☁️ Temps variable et de saison, alternance d'éclaircies."
+            indice_confiance = "Modérée (Variable)"
 
-    return tendance_3h, libelle_tendance, prevision
+    return tendance_3h, libelle_tendance, prevision, indice_confiance
 
 
 def obtenir_normales_saison(mois):
@@ -420,17 +425,13 @@ def interpreter_vent_local(degres, vitesse):
         float(degres) if degres is not None and not pd.isna(degres) else 0.0
     )
     if degres is None or pd.isna(degres) or vitesse < 3:
-        return "Calme / Vent variable", "💤"
+        return "Calme / Vent variable (Stabilité locale)", "💤"
     if 315 <= temp_deg or temp_deg < 45:
         return "Bise / Vent de Nord : Assèchement, fraîcheur montagnarde.", "🌬️"
     elif 45 <= temp_deg < 135:
         return "Vent d'Est : Flux continental stable.", "🌤️"
     elif 135 <= temp_deg < 225:
-        return (
-            "Vent du Sud / Sud-Ouest : Doux, flux perturbé annonciateur de"
-            " précipitations.",
-            "⛈️",
-        )
+        return "Vent du Sud / Sud-Ouest : Doux, flux perturbé annonciateur de précipitations.", "⛈️"
     return "Vent d'Ouest / Nord-Ouest : Régime de traîne, averses possibles.", "🌧️"
 
 
@@ -458,9 +459,8 @@ with st.sidebar:
     st.header("⚙️ Station Météo — Cloud")
     st.write("**Altitude :** 900 m (Habère-Poche)")
 
-    # Option de lissage de la rose des vents pour plus de stabilité prévisionnelle
     st.markdown("---")
-    lissage_active = st.checkbox("Activer le lissage 3h (Rose des Vents)", value=True, help="Lisse les fluctuations rapides du vent via une moyenne glissante vectorielle.")
+    lissage_active = st.checkbox("Lissage vectoriel 3h (Rose des Vents)", value=True, help="Lisse les fluctuations rapides du vent.")
 
     if st.button("🔄 Forcer la synchro & Actualiser"):
         st.rerun()
@@ -591,7 +591,7 @@ if not df_hist.empty and "timestamp" in df_hist.columns:
                 df_today["vent"], errors="coerce"
             ).max(), pd.to_numeric(df_today["rafale"], errors="coerce").max()
 
-tendance_val, tendance_libelle, prevision_texte = (
+tendance_val, tendance_libelle, prevision_texte, indice_confiance = (
     calculer_tendance_et_prevision_robuste(df_hist, pressure)
 )
 
@@ -659,14 +659,12 @@ with tab2:
         df_rose = df_rose.dropna(subset=["direction", "vent"])
 
         if not df_rose.empty:
-            # Application du lissage vectoriel si activé pour éviter les sauts autour du Nord (0/360°)
             if lissage_active and len(df_rose) > 5:
                 df_rose = df_rose.set_index("timestamp")
                 rads = np.radians(df_rose["direction"])
                 df_rose["u"] = -df_rose["vent"] * np.sin(rads)
                 df_rose["v"] = -df_rose["vent"] * np.cos(rads)
 
-                # Fenêtre glissante de 3 heures
                 r_win = df_rose.rolling(window="3h")
                 df_rose["vent"] = r_win["vent"].mean()
                 u_s = r_win["u"].mean()
@@ -975,10 +973,13 @@ with tab6:
     st.subheader("🔮 Prévisions & Analyse de Moyenne Montagne")
 
     with st.container(border=True):
-        st.markdown(f"### 📊 Tendance Barométrique (3h glissantes)")
-        st.info(tendance_libelle)
+        st.markdown(f"### 📊 Tendance Barométrique (3h glissantes) & Fiabilité")
+        col_prev1, col_prev2 = st.columns(2)
+        col_prev1.info(tendance_libelle)
+        col_prev2.success(f"**Indice de confiance :** {indice_confiance}")
+
         if pressure:
-            st.success(f"**Synthèse :** {prevision_texte}")
+            st.markdown(f"**Synthèse prévisionnelle :** {prevision_texte}")
 
     st.markdown("---")
     g1, g2, g3 = st.columns(3)
@@ -990,12 +991,12 @@ with tab6:
     if wind_dir is not None:
         interp, emoji = interpreter_vent_local(wind_dir, wind_speed)
         with st.container(border=True):
-            st.markdown(f"### {emoji} {interp}")
+            st.markdown(f"### {emoji} Analyse du flux de vent dominant")
+            st.write(interp)
 
 with tab7:
     st.subheader("📓 Journal de Bord & Normales Climatiques (Habère-Poche)")
 
-    # Section Normales de saison
     mois_actuel = current_timestamp.month
     normes = obtenir_normales_saison(mois_actuel)
 
@@ -1007,7 +1008,6 @@ with tab7:
         col_n1.metric("Moyenne des Minimales attendues", f"{normes['t_min']} °C")
         col_n2.metric("Moyenne des Maximales attendues", f"{normes['t_max']} °C")
 
-        # Comparaison simple avec le température actuelle
         if temp < normes['t_min']:
             st.markdown("❄️ *Actuellement : Plus frais que les normales de saison.*")
         elif temp > normes['t_max']:
@@ -1033,7 +1033,6 @@ with tab7:
             else:
                 st.warning("Impossible de joindre la feuille du journal.")
 
-    # Affichage des notes précédentes si disponibles
     sheet_j = connecter_feuille_journal()
     if sheet_j:
         try:
