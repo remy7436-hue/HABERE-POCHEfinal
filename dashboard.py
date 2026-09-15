@@ -44,6 +44,7 @@ ECOWITT_APP_KEY = st.secrets.get("ECOWITT_APP_KEY", "")
 GW3000_MAC = st.secrets.get("GW3000_MAC", "")
 
 SHEET_NAME = "Historique_Meteo_Habere_Poche"
+SHEET_JOURNAL = "Journal_Observations"
 
 
 # 4. Connexion au Google Sheet (Mise en cache & gestion robuste Base64 / PEM)
@@ -68,6 +69,33 @@ def connecter_google_sheet():
   client = gspread.authorize(creds)
   sheet = client.open(SHEET_NAME).sheet1
   return sheet
+
+
+def connecter_feuille_journal():
+  try:
+    scope = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    gcp_creds = dict(st.secrets["gcp_service_account"])
+    if "private_key" in gcp_creds:
+      key_val = str(gcp_creds["private_key"]).strip()
+      if not key_val.startswith("-----BEGIN"):
+        try:
+          key_val = base64.b64decode(key_val).decode("utf-8")
+        except Exception:
+          pass
+        gcp_creds["private_key"] = key_val.replace("\\n", "\n")
+    creds = Credentials.from_service_account_info(gcp_creds, scopes=scope)
+    client = gspread.authorize(creds)
+    try:
+      sheet_j = client.open(SHEET_NAME).worksheet(SHEET_JOURNAL)
+    except Exception:
+      sheet_j = client.open(SHEET_NAME).add_worksheet(title=SHEET_JOURNAL, rows=100, cols=3)
+      sheet_j.append_row(["Date", "Auteur", "Observation"])
+    return sheet_j
+  except Exception:
+    return None
 
 
 def nettoyer_timestamp_robuste(valeur_brute):
@@ -368,6 +396,25 @@ def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
   return tendance_3h, libelle_tendance, prevision
 
 
+def obtenir_normales_saison(mois):
+  """Normales climatiques approximatives pour Habère-Poche (900m)"""
+  normales = {
+      1: {"t_min": -3.0, "t_max": 3.0, "desc": "Hiver frais, neige fréquente."},
+      2: {"t_min": -2.5, "t_max": 4.5, "desc": "Hiver persistant, gel matinal."},
+      3: {"t_min": 0.0, "t_max": 9.0, "desc": "Début de transition printanière."},
+      4: {"t_min": 3.0, "t_max": 13.0, "desc": "Printemps variable, giboulées."},
+      5: {"t_min": 7.0, "t_max": 17.5, "desc": "Douceur printanière, verdissement."},
+      6: {"t_min": 10.5, "t_max": 21.5, "desc": "Début d'été montagnard agréable."},
+      7: {"t_min": 12.5, "t_max": 24.0, "desc": "Chaleur estivale modérée à 900m."},
+      8: {"t_min": 12.0, "t_max": 23.5, "desc": "Période estivale stable, orages."},
+      9: {"t_min": 8.5, "t_max": 18.5, "desc": "Automne précoce, nuits fraîches."},
+      10: {"t_min": 5.0, "t_max": 13.0, "desc": "Saison des brumes et des pluies."},
+      11: {"t_min": 0.5, "t_max": 6.5, "desc": "Premières neiges de basse montagne."},
+      12: {"t_min": -2.0, "t_max": 3.5, "desc": "Ambiance hivernale au village."},
+  }
+  return normales.get(mois, {"t_min": 5.0, "t_max": 15.0, "desc": "Normales de saison standard."})
+
+
 def interpreter_vent_local(degres, vitesse):
   temp_deg = (
       float(degres) if degres is not None and not pd.isna(degres) else 0.0
@@ -544,14 +591,15 @@ tendance_val, tendance_libelle, prevision_texte = (
 )
 
 
-# 7. Onglets de l'application
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+# 7. Onglets de l'application (ajout du Journal de bord et Normales)
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊 Temps Réel & Extrêmes",
     "🧭 Rose des Vents",
     "🌧️ Pluviométrie",
     "☁️ Plancher Nuageux",
     "📈 Historique & Tendances",
     "💡 Prévisions & Analyse",
+    "📓 Journal de Bord & Climat"
 ])
 
 with tab1:
@@ -916,6 +964,59 @@ with tab6:
     interp, emoji = interpreter_vent_local(wind_dir, wind_speed)
     with st.container(border=True):
       st.markdown(f"### {emoji} {interp}")
+
+with tab7:
+  st.subheader("📓 Journal de Bord & Normales Climatiques (Habère-Poche)")
+
+  # Section Normales de saison
+  mois_actuel = current_timestamp.month
+  normes = obtenir_normales_saison(mois_actuel)
+
+  with st.container(border=True):
+    st.markdown(f"### 🌡️ Normales climatologiques du mois (900m)")
+    st.write(f"*{normes['desc']}*")
+
+    col_n1, col_n2 = st.columns(2)
+    col_n1.metric("Moyenne des Minimales attendues", f"{normes['t_min']} °C")
+    col_n2.metric("Moyenne des Maximales attendues", f"{normes['t_max']} °C")
+
+    # Comparaison simple avec le température actuelle
+    if temp < normes['t_min']:
+      st.markdown("❄️ *Actuellement : Plus frais que les normales de saison.*")
+    elif temp > normes['t_max']:
+      st.markdown("☀️ *Actuellement : Plus doux que les normales de saison.*")
+    else:
+      st.markdown("✅ *Actuellement : Dans les normales de saison.*")
+
+  st.markdown("---")
+  st.markdown("### ✍️ Carnet d'observations du terrain (Jardin & Nature)")
+
+  with st.form("form_journal"):
+    obs_texte = st.text_area("Nouvelle observation (ex: gelée blanche matinale, premier semis, passage de bise...)")
+    submit_obs = st.form_submit_button("Enregistrer dans le journal")
+
+    if submit_obs and obs_texte.strip():
+      sheet_j = connecter_feuille_journal()
+      if sheet_j:
+        try:
+          sheet_j.append_row([current_timestamp.strftime("%Y-%m-%d %H:%M"), "Rémi", obs_texte.strip()])
+          st.success("Observation enregistrée avec succès dans votre Google Sheet !")
+        except Exception as e:
+          st.error(f"Erreur lors de l'enregistrement : {e}")
+      else:
+        st.warning("Impossible de joindre la feuille du journal.")
+
+  # Affichage des notes précédentes si disponibles
+  sheet_j = connecter_feuille_journal()
+  if sheet_j:
+    try:
+      records_j = sheet_j.get_all_records()
+      if records_j:
+        df_notes = pd.DataFrame(records_j)
+        st.markdown("#### 📜 Historique des observations")
+        st.dataframe(df_notes.tail(10).iloc[::-1], use_container_width=True)
+    except Exception:
+      pass
 
 # Rafraîchissement automatique toutes les 5 minutes
 time.sleep(300)
