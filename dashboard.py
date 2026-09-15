@@ -761,7 +761,8 @@ with tab2:
                     ),
                     radialaxis=dict(showticklabels=True, ticks=""),
                 ),
-                height=500,
+                height=320,  # Hauteur optimisée mobile
+                margin=dict(l=10, r=10, t=40, b=10),
             )
             st.plotly_chart(fig_rose, use_container_width=True)
         else:
@@ -783,10 +784,16 @@ with tab3:
             f"{df_journalier.iloc[-1]['pluie'] if not df_journalier.empty else 0.0}"
             " mm",
         )
+        fig_rain = px.bar(
+            df_journalier, x="date_seule", y="pluie", title="Cumul journalier"
+        )
+        fig_rain.update_layout(
+            height=300,
+            margin=dict(l=10, r=10, t=40, b=10),
+            template="plotly_white"
+        )
         st.plotly_chart(
-            px.bar(
-                df_journalier, x="date_seule", y="pluie", title="Cumul journalier"
-            ),
+            fig_rain,
             use_container_width=True,
         )
     else:
@@ -827,7 +834,9 @@ with tab4:
         fig_pano.update_layout(
             xaxis=dict(visible=False, range=[-0.5, 9.5]),
             yaxis=dict(range=[400, 3000]),
-            height=500,
+            height=320,
+            margin=dict(l=10, r=10, t=40, b=10),
+            template="plotly_white"
         )
         st.plotly_chart(fig_pano, use_container_width=True)
     else:
@@ -865,6 +874,7 @@ with tab5:
         else:
             y_min, y_max = 0, 25
 
+        # GRAPHIQUE TEMPÉRATURE (Hauteur et marges optimisées mobile)
         fig_temp = go.Figure()
         fig_temp.add_trace(
             go.Scatter(
@@ -890,15 +900,17 @@ with tab5:
         )
         fig_temp.update_layout(
             title="Températures et Ressenti (°C)",
-            xaxis_title="Temps",
+            xaxis_title="",
             yaxis_title="°C",
             yaxis=dict(range=[y_min, y_max]),
-            height=400,
+            height=280,
             hovermode="x unified",
             template="plotly_white",
+            margin=dict(l=10, r=10, t=40, b=10),
         )
         st.plotly_chart(fig_temp, use_container_width=True)
 
+        # GRAPHIQUE HUMIDITÉ
         fig_hum = go.Figure()
         fig_hum.add_trace(
             go.Scatter(
@@ -914,12 +926,13 @@ with tab5:
         )
         fig_hum.update_layout(
             title="Humidité relative (%)",
-            xaxis_title="Temps",
-            yaxis_title="Humidité",
+            xaxis_title="",
+            yaxis_title="%",
             yaxis=dict(range=[0, 100]),
-            height=400,
+            height=280,
             hovermode="x unified",
             template="plotly_white",
+            margin=dict(l=10, r=10, t=40, b=10),
         )
         st.plotly_chart(fig_hum, use_container_width=True)
 
@@ -927,6 +940,7 @@ with tab5:
         p_min = floor(valid_p.min() - 2) if not valid_p.empty else 950
         p_max = ceil(valid_p.max() + 2) if not valid_p.empty else 1050
 
+        # GRAPHIQUE PRESSION
         fig_press = go.Figure()
         fig_press.add_trace(
             go.Scatter(
@@ -940,15 +954,17 @@ with tab5:
         )
         fig_press.update_layout(
             title="Pression atmosphérique (hPa)",
-            xaxis_title="Temps",
-            yaxis_title="Pression",
+            xaxis_title="",
+            yaxis_title="hPa",
             yaxis=dict(range=[p_min, p_max]),
-            height=400,
+            height=280,
             hovermode="x unified",
             template="plotly_white",
+            margin=dict(l=10, r=10, t=40, b=10),
         )
         st.plotly_chart(fig_press, use_container_width=True)
 
+        # GRAPHIQUE DIRECTION DU VENT
         fig_dir = px.scatter(
             df_plot,
             x="timestamp",
@@ -959,11 +975,14 @@ with tab5:
         )
         fig_dir.update_traces(marker=dict(size=6, color="#f59e0b"))
         fig_dir.update_layout(
+            xaxis_title="",
             yaxis=dict(
                 range=[0, 360],
                 tickvals=[0, 90, 180, 270, 360],
-                ticktext=["N (0°)", "E (90°)", "S (180°)", "O (270°)", "N (360°)"],
-            )
+                ticktext=["N", "E", "S", "O", "N"],
+            ),
+            height=280,
+            margin=dict(l=10, r=10, t=40, b=10),
         )
         st.plotly_chart(fig_dir, use_container_width=True)
     else:
