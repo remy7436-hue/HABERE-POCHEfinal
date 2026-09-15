@@ -1,15 +1,15 @@
+from datetime import datetime
+import os
+import base64
+import time
+import pytz
+import re
 import streamlit as st
 import requests
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
-from math import floor, ceil
-import os
-import base64
-import time
-import pytz
 import gspread
 from google.oauth2.service_account import Credentials
 
@@ -27,7 +27,6 @@ GW3000_MAC = st.secrets.get("GW3000_MAC", "")
 
 SHEET_NAME = "Historique_Meteo_Habere_Poche"
 
-
 # 3. Connexion au Google Sheet (Mise en cache & gestion robuste Base64 / PEM)
 @st.cache_resource
 def connecter_google_sheet():
@@ -44,13 +43,25 @@ def connecter_google_sheet():
                 key_val = base64.b64decode(key_val).decode("utf-8")
             except Exception:
                 pass
-        gcp_creds["private_key"] = key_val.replace("\\n", "\n")
+            gcp_creds["private_key"] = key_val.replace("\\n", "\n")
 
     creds = Credentials.from_service_account_info(gcp_creds, scopes=scope)
     client = gspread.authorize(creds)
     sheet = client.open(SHEET_NAME).sheet1
     return sheet
 
+def nettoyer_timestamp_robuste(valeur_brute):
+    """Extrait un format de date propre YYYY-MM-DD HH:MM:SS même en cas de concaténation parasite."""
+    if pd.isna(valeur_brute):
+        return pd.NaT
+    s = str(valeur_brute).strip()
+    match = re.search(r"(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?)", s)
+    if match:
+        try:
+            return pd.to_datetime(match.group(1))
+        except Exception:
+            pass
+    return pd.to_datetime(s, errors="coerce")
 
 def charger_historique_gsheet():
     df_vide = pd.DataFrame(columns=[
@@ -64,8 +75,9 @@ def charger_historique_gsheet():
         if data:
             df = pd.DataFrame(data)
             if not df.empty and "timestamp" in df.columns:
-                df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+                df["timestamp"] = df["timestamp"].apply(nettoyer_timestamp_robuste)
                 df = df.dropna(subset=["timestamp"])
+
                 if not df.empty:
                     cols_num = ["temperature", "ressenti", "humidite", "pression", "pression_abs", "vent", "rafale", "direction", "pluie"]
                     for col in cols_num:
@@ -81,7 +93,6 @@ def charger_historique_gsheet():
 
     return df_vide
 
-
 def sauvegarder_mesure_gsheet(timestamp, heure, temp, ressenti, humidite, pression, pression_abs, vent, rafale, direction, pluie):
     df = charger_historique_gsheet()
 
@@ -89,9 +100,11 @@ def sauvegarder_mesure_gsheet(timestamp, heure, temp, ressenti, humidite, pressi
     actuel_temps = timestamp_propre.strftime("%Y-%m-%d %H:%M")
 
     if not df.empty and "timestamp" in df.columns:
-        dernier_temps = pd.to_datetime(df.iloc[-1]["timestamp"]).strftime("%Y-%m-%d %H:%M") if pd.notnull(df.iloc[-1]["timestamp"]) else ""
-        if dernier_temps == actuel_temps:
-            return df
+        valid_ts = df["timestamp"].dropna()
+        if not valid_ts.empty:
+            dernier_temps = pd.to_datetime(valid_ts.iloc[-1]).strftime("%Y-%m-%d %H:%M")
+            if dernier_temps == actuel_temps:
+                return df
 
     nouvelle_ligne = [
         timestamp_propre.strftime("%Y-%m-%d %H:%M:%S"),
@@ -113,7 +126,6 @@ def sauvegarder_mesure_gsheet(timestamp, heure, temp, ressenti, humidite, pressi
     }])
     df = pd.concat([df, nouvelle_df], ignore_index=True)
     return df
-
 
 # 4. Fonctions utilitaires & conversion d'unités Ecowitt
 def to_float(val):
@@ -183,7 +195,6 @@ def interpreter_vent_local(degres, vitesse):
     elif 135 <= temp_deg < 225: return "Vent du Sud / Sud-Ouest : Doux, annonciateur de pluie/orages.", "⛈️"
     return "Vent d'Ouest / Nord-Ouest : Traîne, averses.", "🌧️"
 
-
 # 5. Récupération API Ecowitt
 def fetch_ecowitt_data(app_key, api_key, mac):
     url = "https://api.ecowitt.net/api/v3/device/real_time"
@@ -193,7 +204,6 @@ def fetch_ecowitt_data(app_key, api_key, mac):
         if res.status_code == 200: return res.json()
     except Exception: pass
     return None
-
 
 # Sidebar
 with st.sidebar:
@@ -251,7 +261,7 @@ df_hist = sauvegarder_mesure_gsheet(
 )
 
 if not df_hist.empty and "timestamp" in df_hist.columns:
-    df_hist["timestamp"] = pd.to_datetime(df_hist["timestamp"], errors="coerce")
+    df_hist["timestamp"] = df_hist["timestamp"].apply(nettoyer_timestamp_robuste)
 
 delta_temp = round(float(df_hist.iloc[-1]["temperature"]) - float(df_hist.iloc[-2]["temperature"]), 1) if len(df_hist) >= 2 else 0.0
 delta_hum = round(float(df_hist.iloc[-1]["humidite"]) - float(df_hist.iloc[-2]["humidite"]), 1) if len(df_hist) >= 2 else 0.0
@@ -260,19 +270,20 @@ delta_press = round(float(df_hist.iloc[-1]["pression"]) - float(df_hist.iloc[-2]
 max_temp, min_temp, max_temp_time, min_temp_time = "--", "--", "", ""
 max_wind, max_gust = 0.0, 0.0
 if not df_hist.empty and "timestamp" in df_hist.columns:
-    df_today = df_hist[df_hist["timestamp"].dt.strftime("%Y-%m-%d") == current_timestamp.strftime("%Y-%m-%d")]
-    if not df_today.empty:
-        df_today["temperature"] = pd.to_numeric(df_today["temperature"], errors="coerce")
-        df_today_clean = df_today[(df_today["temperature"] >= -30) & (df_today["temperature"] <= 50)]
-        if not df_today_clean.empty:
-            max_t, min_t = df_today_clean.loc[df_today_clean["temperature"].idxmax()], df_today_clean.loc[df_today_clean["temperature"].idxmin()]
-            max_temp, max_temp_time = max_t["temperature"], max_t["heure"]
-            min_temp, min_temp_time = min_t["temperature"], min_t["heure"]
-        max_wind, max_gust = pd.to_numeric(df_today["vent"], errors="coerce").max(), pd.to_numeric(df_today["rafale"], errors="coerce").max()
+    df_valid_time = df_hist.dropna(subset=["timestamp"])
+    if not df_valid_time.empty:
+        df_today = df_valid_time[df_valid_time["timestamp"].dt.strftime("%Y-%m-%d") == current_timestamp.strftime("%Y-%m-%d")]
+        if not df_today.empty:
+            df_today["temperature"] = pd.to_numeric(df_today["temperature"], errors="coerce")
+            df_today_clean = df_today[(df_today["temperature"] >= -30) & (df_today["temperature"] <= 50)]
+            if not df_today_clean.empty:
+                max_t, min_t = df_today_clean.loc[df_today_clean["temperature"].idxmax()], df_today_clean.loc[df_today_clean["temperature"].idxmin()]
+                max_temp, max_temp_time = max_t["temperature"], max_t["heure"]
+                min_temp, min_temp_time = min_t["temperature"], min_t["heure"]
+            max_wind, max_gust = pd.to_numeric(df_today["vent"], errors="coerce").max(), pd.to_numeric(df_today["rafale"], errors="coerce").max()
 
 tendance_baro = round(float(df_hist.iloc[-1]["pression"]) - float(df_hist.iloc[0]["pression"]), 2) if len(df_hist) >= 2 else 0.0
 prevision_texte = prevision_zambretti(pressure, tendance_baro)
-
 
 # 6. Onglets de l'application
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
@@ -411,7 +422,6 @@ with tab5:
         df_plot.loc[(df_plot["ressenti"] < -40) | (df_plot["ressenti"] > 60), "ressenti"] = np.nan
         df_plot.loc[(df_plot["pression"] < 900) | (df_plot["pression"] > 1100), "pression"] = np.nan
 
-        # Calcul dynamique des bornes Y pour la température et le ressenti
         valid_t = df_plot["temperature"].dropna()
         if not valid_t.empty:
             y_min = floor(valid_t.quantile(0.01) - 2)
@@ -419,7 +429,6 @@ with tab5:
         else:
             y_min, y_max = 0, 25
 
-        # Graphique Température & Ressenti (avec connectgaps=True)
         fig_temp = go.Figure()
         fig_temp.add_trace(go.Scatter(
             x=df_plot["timestamp"], y=df_plot["temperature"],
@@ -443,7 +452,6 @@ with tab5:
         )
         st.plotly_chart(fig_temp, use_container_width=True)
 
-        # Graphique Humidité (avec connectgaps=True)
         fig_hum = go.Figure()
         fig_hum.add_trace(go.Scatter(
             x=df_plot["timestamp"], y=df_plot["humidite"],
@@ -462,7 +470,6 @@ with tab5:
         )
         st.plotly_chart(fig_hum, use_container_width=True)
 
-        # Graphique Pression atmosphérique (avec connectgaps=True)
         valid_p = df_plot["pression"].dropna()
         p_min = floor(valid_p.min() - 2) if not valid_p.empty else 950
         p_max = ceil(valid_p.max() + 2) if not valid_p.empty else 1050
@@ -484,7 +491,6 @@ with tab5:
         )
         st.plotly_chart(fig_press, use_container_width=True)
 
-        # Graphique Direction du vent
         fig_dir = px.scatter(df_plot, x="timestamp", y="direction", title="Direction du vent au fil du temps (en degrés)", labels={"direction": "Direction (°)"})
         fig_dir.update_traces(marker=dict(size=6, color="orange"))
         fig_dir.update_layout(yaxis=dict(range=[0, 360], tickvals=[0, 90, 180, 270, 360], ticktext=["N (0°)", "E (90°)", "S (180°)", "O (270°)", "N (360°)"]))
@@ -507,6 +513,5 @@ with tab6:
         interp, emoji = interpreter_vent_local(wind_dir, wind_speed)
         st.markdown(f"### {emoji} {interp}")
 
-# Rafraîchissement automatique toutes les 5 minutes
-time.sleep(300)
-st.rerun()
+# Rafraîchissement automatique propre via les fragments ou st.rerun conditionnel si nécessaire
+# (Le time.sleep bloquant a été retiré pour éviter de saturer les ressources du serveur Streamlit Cloud)
