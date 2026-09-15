@@ -19,7 +19,26 @@ st.set_page_config(
     page_title="Météo Habère-Poche", page_icon="🏔️", layout="wide"
 )
 
-# 2. Récupération des secrets (Ecowitt + Google Sheets)
+# 2. Application de styles CSS personnalisés pour un rendu professionnel
+st.markdown("""
+    <style>
+    .main {
+        background-color: #f8fafc;
+    }
+    .stMetric {
+        background-color: #ffffff;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        border: 1px solid #e2e8f0;
+    }
+    h1, h2, h3 {
+        color: #1e293b;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# 3. Récupération des secrets (Ecowitt + Google Sheets)
 ECOWITT_API_KEY = st.secrets.get("ECOWITT_API_KEY", "")
 ECOWITT_APP_KEY = st.secrets.get("ECOWITT_APP_KEY", "")
 GW3000_MAC = st.secrets.get("GW3000_MAC", "")
@@ -27,7 +46,7 @@ GW3000_MAC = st.secrets.get("GW3000_MAC", "")
 SHEET_NAME = "Historique_Meteo_Habere_Poche"
 
 
-# 3. Connexion au Google Sheet (Mise en cache & gestion robuste Base64 / PEM)
+# 4. Connexion au Google Sheet (Mise en cache & gestion robuste Base64 / PEM)
 @st.cache_resource
 def connecter_google_sheet():
   scope = [
@@ -182,7 +201,7 @@ def sauvegarder_mesure_gsheet(
   return df
 
 
-# 4. Fonctions utilitaires & conversion d'unités Ecowitt
+# 5. Fonctions utilitaires & conversion d'unités Ecowitt
 def to_float(val):
   if val is None or val == "":
     return 0.0
@@ -280,10 +299,7 @@ def analyser_risques_montagne(temp, humidite, pression):
 
 
 def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
-  """Calcule la tendance barométrique sur 3h glissantes pour lisser la volatilité
-
-  et propose une prévision professionnelle stabilisée.
-  """
+  """Calcule la tendance barométrique sur 3h glissantes pour lisser la volatilité."""
   if df_hist is None or len(df_hist) < 2 or "timestamp" not in df_hist.columns:
     return (
         0.0,
@@ -291,7 +307,6 @@ def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
         "Données barométriques en cours d'accumulation.",
     )
 
-  # Filtrer les lignes valides avec timestamp et pression
   df_t = df_hist.dropna(subset=["timestamp", "pression"]).copy()
   if len(df_t) < 2:
     return (
@@ -305,17 +320,14 @@ def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
   dernier_temps = df_t["timestamp"].iloc[-1]
   limite_3h = dernier_temps - pd.Timedelta(hours=3)
 
-  # Récupérer la pression il y a ~3h (ou la plus proche disponible)
   df_3h = df_t[df_t["timestamp"] <= limite_3h]
   if not df_3h.empty:
     pression_ref = df_3h["pression"].iloc[-1]
   else:
-    # Si on n'a pas encore 3h d'historique, on prend la plus ancienne dispo
     pression_ref = df_t["pression"].iloc[0]
 
   tendance_3h = round(float(pression_actuelle - pression_ref), 2)
 
-  # Qualification experte de la tendance 3h
   if tendance_3h >= 1.5:
     libelle_tendance = f"Forte hausse (+{tendance_3h} hPa / 3h) 📈"
   elif 0.5 <= tendance_3h < 1.5:
@@ -327,7 +339,6 @@ def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
   else:
     libelle_tendance = f"Forte baisse ({tendance_3h} hPa / 3h) 📉"
 
-  # Prévision professionnelle croisée (Pression + Tendance 3h)
   if tendance_3h >= 1.0:
     prevision = (
         "☀️ Amélioration durable, conditions anticycloniques robustes."
@@ -376,7 +387,7 @@ def interpreter_vent_local(degres, vitesse):
   return "Vent d'Ouest / Nord-Ouest : Régime de traîne, averses possibles.", "🌧️"
 
 
-# 5. Récupération API Ecowitt
+# 6. Récupération API Ecowitt
 def fetch_ecowitt_data(app_key, api_key, mac):
   url = "https://api.ecowitt.net/api/v3/device/real_time"
   params = {
@@ -528,13 +539,12 @@ if not df_hist.empty and "timestamp" in df_hist.columns:
           df_today["vent"], errors="coerce"
       ).max(), pd.to_numeric(df_today["rafale"], errors="coerce").max()
 
-# Appel du moteur de prévision stabilisé sur 3h glissantes
 tendance_val, tendance_libelle, prevision_texte = (
     calculer_tendance_et_prevision_robuste(df_hist, pressure)
 )
 
 
-# 6. Onglets de l'application
+# 7. Onglets de l'application
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📊 Temps Réel & Extrêmes",
     "🧭 Rose des Vents",
@@ -546,39 +556,42 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 
 with tab1:
   st.subheader("📡 Conditions Actuelles (Flux Ecowitt Cloud)")
-  c1, c2, c3, c4 = st.columns(4)
-  c1.metric("Température", f"{temp} °C", delta=f"{delta_temp:+.1f} °C")
-  c2.metric("Humidité", f"{humidity} %", delta=f"{delta_hum:+.1f} %")
-  c3.metric(
-      "Pression relative", f"{pressure} hPa", delta=f"{delta_press:+.2f} hPa"
-  )
-  c4.metric("Pression absolue", f"{pressure_abs} hPa")
 
-  st.markdown("---")
-  c5, c6, c7, c8 = st.columns(4)
-  c5.metric("Ressenti", f"{temp_ressentie} °C", help=mode_ressenti)
-  c6.metric("Vent moyen", f"{wind_speed} km/h")
-  c7.metric("Rafale", f"{wind_gust} km/h")
-  c8.metric("Direction", f"{degres_vers_cardinal(wind_dir)} ({int(wind_dir)}°)")
+  with st.container(border=True):
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Température", f"{temp} °C", delta=f"{delta_temp:+.1f} °C")
+    c2.metric("Humidité", f"{humidity} %", delta=f"{delta_hum:+.1f} %")
+    c3.metric(
+        "Pression relative", f"{pressure} hPa", delta=f"{delta_press:+.2f} hPa"
+    )
+    c4.metric("Pression absolue", f"{pressure_abs} hPa")
 
-  st.markdown("---")
-  c5_b, _ = st.columns(2)
-  c5_b.metric("Pluie du jour", f"{rain_day} mm")
+    st.markdown("---")
+    c5, c6, c7, c8 = st.columns(4)
+    c5.metric("Ressenti", f"{temp_ressentie} °C", help=mode_ressenti)
+    c6.metric("Vent moyen", f"{wind_speed} km/h")
+    c7.metric("Rafale", f"{wind_gust} km/h")
+    c8.metric("Direction", f"{degres_vers_cardinal(wind_dir)} ({int(wind_dir)}°)")
+
+    st.markdown("---")
+    c5_b, _ = st.columns(2)
+    c5_b.metric("Pluie du jour", f"{rain_day} mm")
 
   st.markdown("### 🏆 Extrêmes du jour")
-  e1, e2, e3, e4 = st.columns(4)
-  e1.metric(
-      "Max Chaleur (Tx)",
-      f"{max_temp} °C" if max_temp != "--" else "--",
-      f"à {max_temp_time}",
-  )
-  e2.metric(
-      "Min Fraîcheur (Tn)",
-      f"{min_temp} °C" if min_temp != "--" else "--",
-      f"à {min_temp_time}",
-  )
-  e3.metric("Vent max", f"{max_wind} km/h")
-  e4.metric("Rafale max", f"{max_gust} km/h")
+  with st.container(border=True):
+    e1, e2, e3, e4 = st.columns(4)
+    e1.metric(
+        "Max Chaleur (Tx)",
+        f"{max_temp} °C" if max_temp != "--" else "--",
+        f"à {max_temp_time}",
+    )
+    e2.metric(
+        "Min Fraîcheur (Tn)",
+        f"{min_temp} °C" if min_temp != "--" else "--",
+        f"à {min_temp_time}",
+    )
+    e3.metric("Vent max", f"{max_wind} km/h")
+    e4.metric("Rafale max", f"{max_gust} km/h")
   st.caption(
       f"Synchro cloud : **{current_time_str}** | Lignes dans Google Sheet :"
       f" **{len(df_hist)}**"
@@ -786,7 +799,7 @@ with tab5:
             y=df_plot["temperature"],
             mode="lines+markers",
             name="Température (°C)",
-            line=dict(shape="spline", color="rgb(31, 119, 180)", width=2),
+            line=dict(shape="spline", color="#0284c7", width=2.5),
             connectgaps=True,
         )
     )
@@ -797,7 +810,7 @@ with tab5:
             mode="lines",
             name="Ressenti (°C)",
             line=dict(
-                shape="spline", color="rgb(174, 199, 232)", width=2, dash="dash"
+                shape="spline", color="#38bdf8", width=2, dash="dash"
             ),
             connectgaps=True,
         )
@@ -809,6 +822,7 @@ with tab5:
         yaxis=dict(range=[y_min, y_max]),
         height=400,
         hovermode="x unified",
+        template="plotly_white",
     )
     st.plotly_chart(fig_temp, use_container_width=True)
 
@@ -819,10 +833,10 @@ with tab5:
             y=df_plot["humidite"],
             mode="lines",
             name="Humidité (%)",
-            line=dict(shape="spline", color="teal", width=2),
+            line=dict(shape="spline", color="#0d9488", width=2),
             connectgaps=True,
             fill="tozeroy",
-            fillcolor="rgba(0, 128, 128, 0.1)",
+            fillcolor="rgba(13, 148, 136, 0.1)",
         )
     )
     fig_hum.update_layout(
@@ -832,6 +846,7 @@ with tab5:
         yaxis=dict(range=[0, 100]),
         height=400,
         hovermode="x unified",
+        template="plotly_white",
     )
     st.plotly_chart(fig_hum, use_container_width=True)
 
@@ -846,7 +861,7 @@ with tab5:
             y=df_plot["pression"],
             mode="lines+markers",
             name="Pression (hPa)",
-            line=dict(shape="spline", color="rebeccapurple", width=1.5),
+            line=dict(shape="spline", color="#7c3aed", width=1.5),
             connectgaps=True,
         )
     )
@@ -857,6 +872,7 @@ with tab5:
         yaxis=dict(range=[p_min, p_max]),
         height=400,
         hovermode="x unified",
+        template="plotly_white",
     )
     st.plotly_chart(fig_press, use_container_width=True)
 
@@ -866,8 +882,9 @@ with tab5:
         y="direction",
         title="Direction du vent au fil du temps (en degrés)",
         labels={"direction": "Direction (°)"},
+        template="plotly_white",
     )
-    fig_dir.update_traces(marker=dict(size=6, color="orange"))
+    fig_dir.update_traces(marker=dict(size=6, color="#f59e0b"))
     fig_dir.update_layout(
         yaxis=dict(
             range=[0, 360],
@@ -881,9 +898,13 @@ with tab5:
 
 with tab6:
   st.subheader("🔮 Prévisions & Analyse de Moyenne Montagne")
-  st.info(f"📊 **Tendance Barométrique (3h glissantes) :** {tendance_libelle}")
-  if pressure:
-    st.success(f"### Synthèse : **{prevision_texte}**")
+
+  with st.container(border=True):
+    st.markdown(f"### 📊 Tendance Barométrique (3h glissantes)")
+    st.info(tendance_libelle)
+    if pressure:
+      st.success(f"**Synthèse :** {prevision_texte}")
+
   st.markdown("---")
   g1, g2, g3 = st.columns(3)
   g1.metric("Risque gel", risque_gel)
@@ -893,7 +914,8 @@ with tab6:
   st.markdown("---")
   if wind_dir is not None:
     interp, emoji = interpreter_vent_local(wind_dir, wind_speed)
-    st.markdown(f"### {emoji} {interp}")
+    with st.container(border=True):
+      st.markdown(f"### {emoji} {interp}")
 
 # Rafraîchissement automatique toutes les 5 minutes
 time.sleep(300)
