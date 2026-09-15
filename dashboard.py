@@ -1,9 +1,10 @@
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from math import ceil, floor
 import os
 import re
 import time
+import zoneinfo
 import gspread
 from google.oauth2.service_account import Credentials
 import numpy as np
@@ -386,7 +387,11 @@ risque_gel, etp_val, point_rosee = analyser_risques_montagne(
     temp, humidity, pressure
 )
 
-timezone = pytz.timezone("Europe/Paris")
+try:
+  timezone = zoneinfo.ZoneInfo("Europe/Paris")
+except Exception:
+  timezone = timezone(timedelta(hours=2))
+
 current_timestamp = datetime.now(timezone)
 current_time_str = current_timestamp.strftime("%H:%M:%S")
 
@@ -532,14 +537,12 @@ with tab2:
     df_rose = df_rose.dropna(subset=["direction", "vent"])
 
     if not df_rose.empty:
-      # Calcul du pourcentage de vents calmes (< 1 km/h)
       calm_count = len(df_rose[df_rose["vent"] < 1])
       total_count = len(df_rose)
       calm_percentage = (
           (calm_count / total_count * 100) if total_count > 0 else 0
       )
 
-      # Tranches de vitesse affinées (en km/h) pour la colorbar
       bins_vitesse = [0, 5, 10, 15, 20, 30, 40, 50, 150]
       labels_vitesse = [
           "< 5",
@@ -593,7 +596,6 @@ with tab2:
           .reset_index(name="count")
       )
 
-      # Mappage des degrés aux noms de secteurs
       deg_to_nom = dict(zip(labels_deg, noms_secteurs))
       df_grp["nom"] = df_grp["bin_deg"].map(deg_to_nom)
 
