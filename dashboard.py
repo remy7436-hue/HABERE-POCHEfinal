@@ -4,6 +4,7 @@ import base64
 import time
 import pytz
 import re
+from math import floor, ceil
 import streamlit as st
 import requests
 import pandas as pd
@@ -512,6 +513,3 @@ with tab6:
     if wind_dir is not None:
         interp, emoji = interpreter_vent_local(wind_dir, wind_speed)
         st.markdown(f"### {emoji} {interp}")
-
-# Rafraîchissement automatique propre via les fragments ou st.rerun conditionnel si nécessaire
-# (Le time.sleep bloquant a été retiré pour éviter de saturer les ressources du serveur Streamlit Cloud)
