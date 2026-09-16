@@ -498,7 +498,7 @@ wind_speed = get_val("wind", "wind_speed")
 wind_gust = get_val("wind", "wind_gust")
 wind_dir = get_val("wind", "wind_direction")
 
-# Récupération robuste de la pluie (compatibilité multi-structures Ecowitt)
+# Récupération robuste de la pluie
 rain_day = get_val("rainfall", "day")
 if rain_day == 0.0:
     rain_day = get_val("rainfall", "daily") or get_val("precipitation", "rain_day") or get_val("rain", "day")
@@ -828,6 +828,22 @@ with tab5:
             .interactive()
         )
         st.altair_chart(chart_hum, use_container_width=True)
+
+        valid_p = df_plot["pression"].dropna()
+        p_min = floor(valid_p.min() - 2) if not valid_p.empty else 980
+        p_max = ceil(valid_p.max() + 2) if not valid_p.empty else 1040
+
+        chart_press = (
+            alt.Chart(df_plot.dropna(subset=["pression"]))
+            .mark_line(interpolate="monotone", color="#f59e0b", strokeWidth=2)
+            .encode(
+                x=alt.X("timestamp:T", title=""),
+                y=alt.Y("pression:Q", title="hPa", scale=alt.Scale(domain=[p_min, p_max], zero=False)),
+            )
+            .properties(title="Pression atmosphérique relative (hPa)", height=260)
+            .interactive()
+        )
+        st.altair_chart(chart_press, use_container_width=True)
 
 with tab6:
     st.subheader("💡 Prévisions & Analyse locale")
