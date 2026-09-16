@@ -106,7 +106,6 @@ def connecter_feuille_journal():
 
 
 def nettoyer_timestamp_robuste(valeur_brute):
-    """Extrait un format de date propre YYYY-MM-DD HH:MM:SS même en cas de concaténation parasite."""
     if pd.isna(valeur_brute):
         return pd.NaT
     s = str(valeur_brute).strip()
@@ -157,6 +156,13 @@ def charger_historique_gsheet():
                     for col in cols_num:
                         if col in df.columns:
                             df[col] = pd.to_numeric(df[col], errors="coerce")
+
+                    # 🔥 FILTRAGE STRICT DES VALEURS ABERRANTES POUR ÉVITER LES DELTAS Fous
+                    df = df[
+                        (df["temperature"].between(-30, 50) | df["temperature"].isna()) &
+                        (df["pression"].between(900, 1100) | df["pression"].isna()) &
+                        (df["humidite"].between(0, 100) | df["humidite"].isna())
+                    ]
 
                     df = (
                         df.sort_values("timestamp")
@@ -334,7 +340,6 @@ def analyser_risques_montagne(temp, humidite, pression):
 
 
 def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
-    """Calcule la tendance barométrique sur 3h glissantes pour lisser la volatilité."""
     if df_hist is None or len(df_hist) < 2 or "timestamp" not in df_hist.columns:
         return (
             0.0,
@@ -403,7 +408,6 @@ def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
 
 
 def obtenir_normales_saison(mois):
-    """Normales climatiques approximatives pour Habère-Poche (900m)"""
     normales = {
         1: {"t_min": -3.0, "t_max": 3.0, "desc": "Hiver frais, neige fréquente."},
         2: {"t_min": -2.5, "t_max": 4.5, "desc": "Hiver persistant, gel matinal."},
@@ -419,21 +423,6 @@ def obtenir_normales_saison(mois):
         12: {"t_min": -2.0, "t_max": 3.5, "desc": "Ambiance hivernale au village."},
     }
     return normales.get(mois, {"t_min": 5.0, "t_max": 15.0, "desc": "Normales de saison standard."})
-
-
-def interpreter_vent_local(degres, vitesse):
-    temp_deg = (
-        float(degres) if degres is not None and not pd.isna(degres) else 0.0
-    )
-    if degres is None or pd.isna(degres) or vitesse < 3:
-        return "Calme / Vent variable (Stabilité locale)", "💤"
-    if 315 <= temp_deg or temp_deg < 45:
-        return "Bise / Vent de Nord : Assèchement, fraîcheur montagnarde.", "🌬️"
-    elif 45 <= temp_deg < 135:
-        return "Vent d'Est : Flux continental stable.", "🌤️"
-    elif 135 <= temp_deg < 225:
-        return "Vent du Sud / Sud-Ouest : Doux, flux perturbé annonciateur de précipitations.", "⛈️"
-    return "Vent d'Ouest / Nord-Ouest : Régime de traîne, averses possibles.", "🌧️"
 
 
 # 6. Récupération API Ecowitt
@@ -864,6 +853,9 @@ with tab5:
         df_plot.loc[
             (df_plot["pression"] < 900) | (df_plot["pression"] > 1100), "pression"
         ] = np.nan
+
+        # Nettoyage des NaN pour Altair
+        df_plot = df_plot.dropna(subset=["timestamp"])
 
         valid_t = df_plot["temperature"].dropna()
         if not valid_t.empty:
