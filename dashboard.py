@@ -848,9 +848,8 @@ with tab5:
     if not df_hist.empty:
         df_plot = df_hist.copy()
 
-        df_plot["temperature"] = pd.to_numeric(
-            df_plot["temperature"], errors="coerce"
-        )
+        df_plot["timestamp"] = pd.to_datetime(df_plot["timestamp"])
+        df_plot["temperature"] = pd.to_numeric(df_plot["temperature"], errors="coerce")
         df_plot["ressenti"] = pd.to_numeric(df_plot["ressenti"], errors="coerce")
         df_plot["humidite"] = pd.to_numeric(df_plot["humidite"], errors="coerce")
         df_plot["pression"] = pd.to_numeric(df_plot["pression"], errors="coerce")
@@ -873,7 +872,7 @@ with tab5:
         else:
             y_min, y_max = 0, 25
 
-        # 1. GRAPHIQUE TEMPÉRATURE & RESSENTI (Altair)
+        # 1. GRAPHIQUE TEMPÉRATURE & RESSENTI (Altair corrigé avec defined)
         df_temp_melt = df_plot.melt(
             id_vars=["timestamp"],
             value_vars=["temperature", "ressenti"],
@@ -908,13 +907,14 @@ with tab5:
                     alt.value([4, 4]),
                     alt.value([0]),
                 ),
+                defined="isValid(Valeur)"
             )
             .properties(title="Températures et Ressenti (°C)", height=260)
             .interactive()
         )
         st.altair_chart(chart_temp, use_container_width=True)
 
-        # 2. GRAPHIQUE HUMIDITÉ (Altair)
+        # 2. GRAPHIQUE HUMIDITÉ (Altair corrigé avec defined)
         chart_hum = (
             alt.Chart(df_plot)
             .mark_area(
@@ -928,6 +928,7 @@ with tab5:
                 y=alt.Y(
                     "humidite:Q", title="%", scale=alt.Scale(domain=[0, 100])
                 ),
+                defined="isValid(humidite)"
             )
             .properties(title="Humidité relative (%)", height=260)
             .interactive()
@@ -938,7 +939,7 @@ with tab5:
         p_min = floor(valid_p.min() - 2) if not valid_p.empty else 950
         p_max = ceil(valid_p.max() + 2) if not valid_p.empty else 1050
 
-        # 3. GRAPHIQUE PRESSION (Altair)
+        # 3. GRAPHIQUE PRESSION (Altair corrigé avec defined)
         chart_press = (
             alt.Chart(df_plot)
             .mark_line(interpolate="monotone", color="#7c3aed", width=1.5)
@@ -949,6 +950,7 @@ with tab5:
                     title="hPa",
                     scale=alt.Scale(domain=[p_min, p_max], zero=False),
                 ),
+                defined="isValid(pression)"
             )
             .properties(title="Pression atmosphérique (hPa)", height=260)
             .interactive()
@@ -958,33 +960,34 @@ with tab5:
         st.info("Aucun historique disponible dans le Google Sheet.")
 
 with tab6:
-    st.subheader("💡 Prévisions & Analyse Locale")
+    st.subheader("💡 Prévisions & Analyse locale")
+
+    col_p1, col_p2 = st.columns(2)
+    with col_p1:
+        with st.container(border=True):
+            st.markdown("### 🔍 Tendance Barométrique (3h)")
+            st.metric("Variation", f"{tendance_val:+.2f} hPa / 3h")
+            st.write(f"**Analyse :** {tendance_libelle}")
+            st.write(f"**Indice de confiance :** {indice_confiance}")
+
+    with col_p2:
+        with st.container(border=True):
+            st.markdown("### 🌤️ Prévision Synthétique")
+            st.write(prevision_texte)
+            st.markdown("---")
+            st.write(f"**Point de rosée :** {point_rosee} °C")
+            st.write(f"**Risque phytosanitaire / Gel :** {risque_gel}")
+            st.write(f"**ETP (Évapotranspiration) :** {etp_val} mm/j")
+
+    st.markdown("### 🌡️ Comparaison aux Normales de Saison (900m)")
+    mois_actuel = current_timestamp.month
+    normes = obtenir_normales_saison(mois_actuel)
 
     with st.container(border=True):
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.metric("Tendance barométrique (3h)", tendance_libelle, f"{tendance_val:+0.2f} hPa")
-            st.metric("Indice de Confiance", indice_confiance)
-        with col_b:
-            st.write("**Analyse de la situation :**")
-            st.success(prevision_texte)
-
-    st.markdown("---")
-    st.markdown("### 🔍 Indicateurs Avancés & Risques")
-
-    col_c, col_d, col_e = st.columns(3)
-    col_c.metric("Point de rosée", f"{point_rosee} °C" if point_rosee is not None else "N/A")
-    col_d.metric("Risque de Gel", risque_gel)
-    col_e.metric("Éapotranspiration (ETP)", f"{etp_val} mm/j")
-
-    vent_analyse, vent_icone = interpreter_vent_local(wind_dir, wind_speed)
-    st.info(f"**Régime de brise locale :** {vent_icone} {vent_analyse}")
-
-    mois_actuel = current_timestamp.month
-    normales = obtenir_normales_saison(mois_actuel)
-    st.markdown("### 📅 Normales Climatiques du Mois (900m)")
-    st.write(f"* **Températures moyennes de saison :** {normales['t_min']} °C à {normales['t_max']} °C")
-    st.write(f"* **Contexte :** {normales['desc']}")
+        nc1, nc2, nc3 = st.columns(3)
+        nc1.metric("Normales T. Min", f"{normes['t_min']} °C")
+        nc2.metric("Normales T. Max", f"{normes['t_max']} °C")
+        nc3.metric("Climatologie du mois", f"{normes['desc']}")
 
 with tab7:
     st.subheader("📓 Journal de Bord & Climat")
@@ -992,29 +995,32 @@ with tab7:
     sheet_j = connecter_feuille_journal()
 
     with st.form("form_journal"):
-        st.write("Ajouter une observation ou un événement marquant (jardin, météo, travaux...)")
-        obs_texte = st.text_area("Observation")
-        submit_obs = st.form_submit_button("Enregistrer dans le journal")
+        st.write("Ajouter une observation manuelle (ex: observation phénologique, passage d'un front, faune, jardin...)")
+        obs_texte = st.text_area("Observation / Remarque")
+        auteur_obs = st.text_input("Auteur", value="Rémi")
+        submit_obs = st.form_submit_button("Enregistrer dans le Journal")
 
         if submit_obs and obs_texte.strip():
+            date_obs_str = current_timestamp.strftime("%Y-%m-%d %H:%M")
             if sheet_j is not None:
-                date_str = current_timestamp.strftime("%Y-%m-%d %H:%M")
-                sheet_j.append_row([date_str, "Rémi", obs_texte.strip()])
-                st.success("Observation enregistrée avec succès dans le Google Sheet !")
+                try:
+                    sheet_j.append_row([date_obs_str, auteur_obs, obs_texte])
+                    st.success("Observation enregistrée avec succès !")
+                except Exception as e:
+                    st.error(f"Erreur lors de l'enregistrement : {e}")
             else:
-                st.error("Impossible de se connecter à la feuille du journal.")
+                st.warning("Connexion à la feuille Journal indisponible.")
 
-    st.markdown("---")
-    st.markdown("### 📜 Historique du Journal")
+    st.markdown("### 📜 Historique des Observations")
     if sheet_j is not None:
         try:
             records_j = sheet_j.get_all_records()
             if records_j:
                 df_j = pd.DataFrame(records_j)
-                st.dataframe(df_j.tail(10).iloc[::-1], use_container_width=True)
+                st.dataframe(df_j, use_container_width=True)
             else:
-                st.info("Le journal est vide pour le moment.")
+                st.info("Aucune observation enregistrée pour le moment.")
         except Exception:
-            st.info("Impossible de charger les entrées du journal.")
+            st.info("Impossible de charger le journal pour l'instant.")
     else:
-        st.info("Journal non disponible.")
+        st.info("Feuille de journal non connectée.")
