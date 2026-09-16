@@ -5,6 +5,7 @@ import os
 import re
 import time
 import zoneinfo
+import altair as alt
 import gspread
 from google.oauth2.service_account import Credentials
 import numpy as np
@@ -843,7 +844,7 @@ with tab4:
         st.info("Calcul du plancher nuageux indisponible.")
 
 with tab5:
-    st.subheader("📈 Historique & Tendances Lissées")
+    st.subheader("📈 Historique & Tendances (Altair)")
     if not df_hist.empty:
         df_plot = df_hist.copy()
 
@@ -853,8 +854,6 @@ with tab5:
         df_plot["ressenti"] = pd.to_numeric(df_plot["ressenti"], errors="coerce")
         df_plot["humidite"] = pd.to_numeric(df_plot["humidite"], errors="coerce")
         df_plot["pression"] = pd.to_numeric(df_plot["pression"], errors="coerce")
-        df_plot["vent"] = pd.to_numeric(df_plot["vent"], errors="coerce")
-        df_plot["direction"] = pd.to_numeric(df_plot["direction"], errors="coerce")
 
         df_plot.loc[
             (df_plot["temperature"] < -30) | (df_plot["temperature"] > 50),
@@ -874,95 +873,87 @@ with tab5:
         else:
             y_min, y_max = 0, 25
 
-        # GRAPHIQUE TEMPÉRATURE
-        fig_temp = go.Figure()
-        fig_temp.add_trace(
-            go.Scatter(
-                x=df_plot["timestamp"],
-                y=df_plot["temperature"],
-                mode="lines+markers",
-                name="Température (°C)",
-                line=dict(shape="spline", color="#0284c7", width=2.5),
-                connectgaps=True,
-            )
+        # 1. GRAPHIQUE TEMPÉRATURE & RESSENTI (Altair)
+        df_temp_melt = df_plot.melt(
+            id_vars=["timestamp"],
+            value_vars=["temperature", "ressenti"],
+            var_name="Type",
+            value_name="Valeur",
         )
-        fig_temp.add_trace(
-            go.Scatter(
-                x=df_plot["timestamp"],
-                y=df_plot["ressenti"],
-                mode="lines",
-                name="Ressenti (°C)",
-                line=dict(
-                    shape="spline", color="#38bdf8", width=2, dash="dash"
-                ),
-                connectgaps=True,
-            )
-        )
-        fig_temp.update_layout(
-            title="Températures et Ressenti (°C)",
-            xaxis_title="",
-            yaxis_title="°C",
-            yaxis=dict(range=[y_min, y_max]),
-            height=280,
-            hovermode="x unified",
-            template="plotly_white",
-            margin=dict(l=10, r=10, t=40, b=10),
-        )
-        st.plotly_chart(fig_temp, use_container_width=True)
+        df_temp_melt["Type"] = df_temp_melt["Type"].replace({
+            "temperature": "Température (°C)",
+            "ressenti": "Ressenti (°C)",
+        })
 
-        # GRAPHIQUE HUMIDITÉ
-        fig_hum = go.Figure()
-        fig_hum.add_trace(
-            go.Scatter(
-                x=df_plot["timestamp"],
-                y=df_plot["humidite"],
-                mode="lines",
-                name="Humidité (%)",
-                line=dict(shape="spline", color="#0d9488", width=2),
-                connectgaps=True,
-                fill="tozeroy",
-                fillcolor="rgba(13, 148, 136, 0.1)",
+        chart_temp = (
+            alt.Chart(df_temp_melt)
+            .mark_line(interpolate="monotone")
+            .encode(
+                x=alt.X("timestamp:T", title=""),
+                y=alt.Y(
+                    "Valeur:Q",
+                    title="°C",
+                    scale=alt.Scale(domain=[y_min, y_max]),
+                ),
+                color=alt.Color(
+                    "Type:N",
+                    scale=alt.Scale(
+                        domain=["Température (°C)", "Ressenti (°C)"],
+                        range=["#0284c7", "#38bdf8"],
+                    ),
+                    legend=alt.Legend(title=""),
+                ),
+                strokeDash=alt.condition(
+                    alt.datum.Type == "Ressenti (°C)",
+                    alt.value([4, 4]),
+                    alt.value([0]),
+                ),
             )
+            .properties(title="Températures et Ressenti (°C)", height=260)
+            .interactive()
         )
-        fig_hum.update_layout(
-            title="Humidité relative (%)",
-            xaxis_title="",
-            yaxis_title="%",
-            yaxis=dict(range=[0, 100]),
-            height=280,
-            hovermode="x unified",
-            template="plotly_white",
-            margin=dict(l=10, r=10, t=40, b=10),
+        st.altair_chart(chart_temp, use_container_width=True)
+
+        # 2. GRAPHIQUE HUMIDITÉ (Altair)
+        chart_hum = (
+            alt.Chart(df_plot)
+            .mark_area(
+                interpolate="monotone",
+                color="#0d9488",
+                opacity=0.2,
+                line=dict(color="#0d9488", width=2),
+            )
+            .encode(
+                x=alt.X("timestamp:T", title=""),
+                y=alt.Y(
+                    "humidite:Q", title="%", scale=alt.Scale(domain=[0, 100])
+                ),
+            )
+            .properties(title="Humidité relative (%)", height=260)
+            .interactive()
         )
-        st.plotly_chart(fig_hum, use_container_width=True)
+        st.altair_chart(chart_hum, use_container_width=True)
 
         valid_p = df_plot["pression"].dropna()
         p_min = floor(valid_p.min() - 2) if not valid_p.empty else 950
         p_max = ceil(valid_p.max() + 2) if not valid_p.empty else 1050
 
-        # GRAPHIQUE PRESSION
-        fig_press = go.Figure()
-        fig_press.add_trace(
-            go.Scatter(
-                x=df_plot["timestamp"],
-                y=df_plot["pression"],
-                mode="lines+markers",
-                name="Pression (hPa)",
-                line=dict(shape="spline", color="#7c3aed", width=1.5),
-                connectgaps=True,
+        # 3. GRAPHIQUE PRESSION (Altair)
+        chart_press = (
+            alt.Chart(df_plot)
+            .mark_line(interpolate="monotone", color="#7c3aed", width=1.5)
+            .encode(
+                x=alt.X("timestamp:T", title=""),
+                y=alt.Y(
+                    "pression:Q",
+                    title="hPa",
+                    scale=alt.Scale(domain=[p_min, p_max], zero=False),
+                ),
             )
+            .properties(title="Pression atmosphérique (hPa)", height=260)
+            .interactive()
         )
-        fig_press.update_layout(
-            title="Pression atmosphérique (hPa)",
-            xaxis_title="",
-            yaxis_title="hPa",
-            yaxis=dict(range=[p_min, p_max]),
-            height=280,
-            hovermode="x unified",
-            template="plotly_white",
-            margin=dict(l=10, r=10, t=40, b=10),
-        )
-        st.plotly_chart(fig_press, use_container_width=True)
+        st.altair_chart(chart_press, use_container_width=True)
     else:
         st.info("Aucun historique disponible dans le Google Sheet.")
 
