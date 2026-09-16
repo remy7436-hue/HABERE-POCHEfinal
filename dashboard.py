@@ -289,7 +289,7 @@ def interpreter_vent_local(dir_deg, speed):
     elif 270 <= d <= 330:
         return "Flux de Nord-Ouest / Ouest : Passage de masses d'air instables, risque d'averses sur les Préalpes.", "🌧️"
     else:
-        return féral := f"Flux sectoriel orienté au {degres_vers_cardinal(d)} ({int(d)}°), régime classique de moyenne montagne.", "💨"
+        return f"Flux sectoriel orienté au {degres_vers_cardinal(d)} ({int(d)}°), régime classique de moyenne montagne.", "💨"
 
 
 def calculer_base_cumulus(temp, humidite, altitude_station=900):
@@ -498,10 +498,9 @@ wind_speed = get_val("wind", "wind_speed")
 wind_gust = get_val("wind", "wind_gust")
 wind_dir = get_val("wind", "wind_direction")
 
-# 🔥 Correction robuste de la récupération pluie (compatibilité multi-structures Ecowitt)
+# Récupération robuste de la pluie (compatibilité multi-structures Ecowitt)
 rain_day = get_val("rainfall", "day")
 if rain_day == 0.0:
-    # Essai d'autres clés fréquentes dans l'API Ecowitt v3
     rain_day = get_val("rainfall", "daily") or get_val("precipitation", "rain_day") or get_val("rain", "day")
 
 base_sol, altitude_mer = calculer_base_cumulus(temp, humidity, 900)
@@ -628,7 +627,6 @@ with tab1:
 with tab2:
     st.subheader("🧭 Rose des Vents Améliorée (Google Sheet)")
 
-    # Ajout de l'analyse dynamique du vent retrouvée
     vent_analyse_texte, vent_icone = interpreter_vent_local(wind_dir, wind_speed)
     st.info(f"**Analyse du flux actuel :** {vent_icone} {vent_analyse_texte}")
 
@@ -859,7 +857,6 @@ with tab6:
         nc1, nc2, nc3 = st.columns(3)
         nc1.metric("Normales T. Min", f"{normes['t_min']} °C")
         nc2.metric("Normales T. Max", f"{normes['t_max']} °C")
-        # 🔥 Correction de la taille de police pour éviter l'effet "trop gros"
         nc3.markdown(f"**Climatologie :**<br><span class='normal-desc'>{normes['desc']}</span>", unsafe_allow_html=True)
 
 with tab7:
