@@ -872,7 +872,7 @@ with tab5:
         else:
             y_min, y_max = 0, 25
 
-        # 1. GRAPHIQUE TEMPÉRATURE & RESSENTI (Altair corrigé avec defined)
+        # 1. GRAPHIQUE TEMPÉRATURE & RESSENTI
         df_temp_melt = df_plot.melt(
             id_vars=["timestamp"],
             value_vars=["temperature", "ressenti"],
@@ -907,14 +907,14 @@ with tab5:
                     alt.value([4, 4]),
                     alt.value([0]),
                 ),
-                defined="isValid(Valeur)"
+                defined="isValid(datum.Valeur)"
             )
             .properties(title="Températures et Ressenti (°C)", height=260)
             .interactive()
         )
         st.altair_chart(chart_temp, use_container_width=True)
 
-        # 2. GRAPHIQUE HUMIDITÉ (Altair corrigé avec defined)
+        # 2. GRAPHIQUE HUMIDITÉ
         chart_hum = (
             alt.Chart(df_plot)
             .mark_area(
@@ -928,7 +928,7 @@ with tab5:
                 y=alt.Y(
                     "humidite:Q", title="%", scale=alt.Scale(domain=[0, 100])
                 ),
-                defined="isValid(humidite)"
+                defined="isValid(datum.humidite)"
             )
             .properties(title="Humidité relative (%)", height=260)
             .interactive()
@@ -939,7 +939,7 @@ with tab5:
         p_min = floor(valid_p.min() - 2) if not valid_p.empty else 950
         p_max = ceil(valid_p.max() + 2) if not valid_p.empty else 1050
 
-        # 3. GRAPHIQUE PRESSION (Altair corrigé avec defined)
+        # 3. GRAPHIQUE PRESSION
         chart_press = (
             alt.Chart(df_plot)
             .mark_line(interpolate="monotone", color="#7c3aed", width=1.5)
@@ -950,7 +950,7 @@ with tab5:
                     title="hPa",
                     scale=alt.Scale(domain=[p_min, p_max], zero=False),
                 ),
-                defined="isValid(pression)"
+                defined="isValid(datum.pression)"
             )
             .properties(title="Pression atmosphérique (hPa)", height=260)
             .interactive()
