@@ -498,10 +498,18 @@ wind_speed = get_val("wind", "wind_speed")
 wind_gust = get_val("wind", "wind_gust")
 wind_dir = get_val("wind", "wind_direction")
 
-# Récupération robuste de la pluie
+# Récupération robuste de la pluviométrie (jour, mois, année)
 rain_day = get_val("rainfall", "day")
 if rain_day == 0.0:
     rain_day = get_val("rainfall", "daily") or get_val("precipitation", "rain_day") or get_val("rain", "day")
+
+rain_month = get_val("rainfall", "month")
+if rain_month == 0.0:
+    rain_month = get_val("rainfall", "monthly") or get_val("rain", "month")
+
+rain_year = get_val("rainfall", "year")
+if rain_year == 0.0:
+    rain_year = get_val("rainfall", "yearly") or get_val("rain", "year")
 
 base_sol, altitude_mer = calculer_base_cumulus(temp, humidity, 900)
 temp_ressentie, mode_ressenti = calculer_ressenti(temp, wind_speed, humidity)
@@ -712,15 +720,20 @@ with tab2:
 
 with tab3:
     st.subheader("🌧️ Suivi de la Pluviométrie")
+
+    # Affichage des métriques de pluie (Jour, Mois, Année)
+    c_p1, c_p2, c_p3 = st.columns(3)
+    c_p1.metric("Pluie du jour", f"{rain_day} mm")
+    c_p2.metric("Pluie du mois", f"{rain_month} mm")
+    c_p3.metric("Pluie annuelle", f"{rain_year} mm")
+
+    st.markdown("---")
+
     if not df_hist.empty and "pluie" in df_hist.columns:
         df_rain = df_hist.copy()
         df_rain["pluie"] = pd.to_numeric(df_rain["pluie"], errors="coerce").fillna(0.0)
         df_rain["date_seule"] = df_rain["timestamp"].dt.date
         df_journalier = df_rain.groupby("date_seule")["pluie"].max().reset_index()
-
-        c_p1, _ = st.columns(2)
-        dernier_cumul = df_journalier.iloc[-1]["pluie"] if not df_journalier.empty else 0.0
-        c_p1.metric("Cumul récent / jour", f"{dernier_cumul} mm")
 
         fig_rain = px.bar(
             df_journalier, x="date_seule", y="pluie", title="Cumul journalier de précipitations (mm)"
