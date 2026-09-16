@@ -878,7 +878,8 @@ with tab5:
             value_vars=["temperature", "ressenti"],
             var_name="Type",
             value_name="Valeur",
-        )
+        ).dropna(subset=["Valeur"])
+
         df_temp_melt["Type"] = df_temp_melt["Type"].replace({
             "temperature": "Température (°C)",
             "ressenti": "Ressenti (°C)",
@@ -907,7 +908,6 @@ with tab5:
                     alt.value([4, 4]),
                     alt.value([0]),
                 ),
-                defined="isValid(datum.Valeur)"
             )
             .properties(title="Températures et Ressenti (°C)", height=260)
             .interactive()
@@ -916,7 +916,7 @@ with tab5:
 
         # 2. GRAPHIQUE HUMIDITÉ
         chart_hum = (
-            alt.Chart(df_plot)
+            alt.Chart(df_plot.dropna(subset=["humidite"]))
             .mark_area(
                 interpolate="monotone",
                 color="#0d9488",
@@ -928,7 +928,6 @@ with tab5:
                 y=alt.Y(
                     "humidite:Q", title="%", scale=alt.Scale(domain=[0, 100])
                 ),
-                defined="isValid(datum.humidite)"
             )
             .properties(title="Humidité relative (%)", height=260)
             .interactive()
@@ -941,7 +940,7 @@ with tab5:
 
         # 3. GRAPHIQUE PRESSION
         chart_press = (
-            alt.Chart(df_plot)
+            alt.Chart(df_plot.dropna(subset=["pression"]))
             .mark_line(interpolate="monotone", color="#7c3aed", width=1.5)
             .encode(
                 x=alt.X("timestamp:T", title=""),
@@ -950,7 +949,6 @@ with tab5:
                     title="hPa",
                     scale=alt.Scale(domain=[p_min, p_max], zero=False),
                 ),
-                defined="isValid(datum.pression)"
             )
             .properties(title="Pression atmosphérique (hPa)", height=260)
             .interactive()
