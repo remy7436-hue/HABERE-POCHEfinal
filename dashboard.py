@@ -553,33 +553,41 @@ delta_press = (
     if len(df_hist) >= 2 else 0.0
 )
 
-# CORRECTION DU CALCUL DES EXTRÊMES : Utilisation d'un filtrage souple avec repli si vide
+# --- CORRECTION DES EXTRÊMES DU JOUR ---
 max_temp, min_temp, max_temp_time, min_temp_time = "--", "--", "", ""
 max_wind, max_gust = 0.0, 0.0
-if not df_hist.empty and "timestamp" in df_hist.columns:
-    df_valid_time = df_hist.dropna(subset=["timestamp"])
-    if not df_valid_time.empty:
-        df_today = df_valid_time[
-            df_valid_time["timestamp"].dt.strftime("%Y-%m-%d")
-            == current_timestamp.strftime("%Y-%m-%d")
-        ]
-        df_calc = df_today if not df_today.empty else df_valid_time
 
-        if not df_calc.empty:
-            df_calc["temperature"] = pd.to_numeric(df_calc["temperature"], errors="coerce")
-            df_calc_clean = df_calc[
-                (df_calc["temperature"] >= -30) & (df_calc["temperature"] <= 50)
-            ]
-            if not df_calc_clean.empty:
-                max_t, min_t = (
-                    df_calc_clean.loc[df_calc_clean["temperature"].idxmax()],
-                    df_calc_clean.loc[df_calc_clean["temperature"].idxmin()],
-                )
-                max_temp, max_temp_time = max_t["temperature"], max_t["heure"]
-                min_temp, min_temp_time = min_t["temperature"], min_t["heure"]
-            max_wind, max_gust = pd.to_numeric(
-                df_calc["vent"], errors="coerce"
-            ).max(), pd.to_numeric(df_calc["rafale"], errors="coerce").max()
+if not df_hist.empty and "timestamp" in df_hist.columns:
+    df_calc = df_hist.copy()
+    df_calc["timestamp"] = pd.to_datetime(df_calc["timestamp"], errors="coerce")
+
+    date_aujourdhui = current_timestamp.date()
+    df_today = df_calc[df_calc["timestamp"].dt.date == date_aujourdhui].copy()
+
+    if df_today.empty:
+        df_today = df_calc
+
+    df_today["temperature"] = pd.to_numeric(df_today["temperature"], errors="coerce")
+    df_today_clean = df_today.dropna(subset=["temperature"])
+    df_today_clean = df_today_clean[df_today_clean["temperature"].between(-30, 50)]
+
+    if not df_today_clean.empty:
+        idx_max = df_today_clean["temperature"].idxmax()
+        idx_min = df_today_clean["temperature"].idxmin()
+
+        max_temp = round(float(df_today_clean.loc[idx_max, "temperature"]), 1)
+        min_temp = round(float(df_today_clean.loc[idx_min, "temperature"]), 1)
+
+        ts_max = df_today_clean.loc[idx_max, "timestamp"]
+        ts_min = df_today_clean.loc[idx_min, "timestamp"]
+
+        max_temp_time = ts_max.strftime("%H:%M:%S") if pd.notna(ts_max) else df_today_clean.loc[idx_max, "heure"]
+        min_temp_time = ts_min.strftime("%H:%M:%S") if pd.notna(ts_min) else df_today_clean.loc[idx_min, "heure"]
+
+    max_wind = pd.to_numeric(df_today["vent"], errors="coerce").max()
+    max_gust = pd.to_numeric(df_today["rafale"], errors="coerce").max()
+    max_wind = round(float(max_wind), 1) if pd.notna(max_wind) else 0.0
+    max_gust = round(float(max_gust), 1) if pd.notna(max_gust) else 0.0
 
 tendance_val, tendance_libelle, prevision_texte, indice_confiance = (
     calculer_tendance_et_prevision_robuste(df_hist, pressure)
@@ -792,16 +800,17 @@ with tab5:
     st.subheader("📈 Historique & Tendances (Altair)")
     if not df_hist.empty:
         df_plot = df_hist.copy()
-        df_plot["timestamp"] = pd.to_datetime(df_plot["timestamp"])
+        df_plot["timestamp"] = pd.to_datetime(df_plot["timestamp"], errors="coerce")
         df_plot["temperature"] = pd.to_numeric(df_plot["temperature"], errors="coerce")
         df_plot["ressenti"] = pd.to_numeric(df_plot["ressenti"], errors="coerce")
         df_plot["humidite"] = pd.to_numeric(df_plot["humidite"], errors="coerce")
         df_plot["pression"] = pd.to_numeric(df_plot["pression"], errors="coerce")
 
-        df_plot = df_plot.dropna(subset=["timestamp"])
+        df_plot = df_plot.dropna(subset=["timestamp"]).sort_values("timestamp")
+
         valid_t = df_plot["temperature"].dropna()
-        y_min = floor(valid_t.quantile(0.01) - 2) if not valid_t.empty else 0
-        y_max = ceil(valid_t.quantile(0.99) + 2) if not valid_t.empty else 25
+        y_min = floor(valid_t.min() - 2) if not valid_t.empty else 0
+        y_max = ceil(valid_t.max() + 2) if not valid_t.empty else 25
 
         df_temp_melt = df_plot.melt(
             id_vars=["timestamp"],
@@ -815,31 +824,58 @@ with tab5:
             "ressenti": "Ressenti (°C)",
         })
 
+        tooltip_temp = [
+            alt.Tooltip("timestamp:T", title="Date/Heure", format="%d/%m/%Y %H:%M"),
+            alt.Tooltip("Type:N", title="Mesure"),
+            alt.Tooltip("Valeur:Q", title="Valeur (°C)", format=".1f"),
+        ]
+
         chart_temp = (
             alt.Chart(df_temp_melt)
             .mark_line(interpolate="monotone")
             .encode(
-                x=alt.X("timestamp:T", title=""),
+                x=alt.X(
+                    "timestamp:T",
+                    title="Heure",
+                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45)
+                ),
                 y=alt.Y("Valeur:Q", title="°C", scale=alt.Scale(domain=[y_min, y_max])),
                 color=alt.Color(
                     "Type:N",
-                    scale=alt.Scale(domain=["Température (°C)", "Ressenti (°C)"], range=["#0284c7", "#38bdf8"]),
+                    scale=alt.Scale(
+                        domain=["Température (°C)", "Ressenti (°C)"],
+                        range=["#0284c7", "#38bdf8"]
+                    ),
                     legend=alt.Legend(title=""),
                 ),
+                tooltip=tooltip_temp
             )
-            .properties(title="Températures et Ressenti (°C)", height=260)
+            .properties(title="Températures et Ressenti (°C)", height=280)
             .interactive()
         )
         st.altair_chart(chart_temp, use_container_width=True)
 
         chart_hum = (
             alt.Chart(df_plot.dropna(subset=["humidite"]))
-            .mark_area(interpolate="monotone", color="#0d9488", opacity=0.2, line=dict(color="#0d9488", width=2))
-            .encode(
-                x=alt.X("timestamp:T", title=""),
-                y=alt.Y("humidite:Q", title="%", scale=alt.Scale(domain=[0, 100])),
+            .mark_area(
+                interpolate="monotone",
+                color="#0d9488",
+                opacity=0.25,
+                line=dict(color="#0d9488", width=2)
             )
-            .properties(title="Humidité relative (%)", height=260)
+            .encode(
+                x=alt.X(
+                    "timestamp:T",
+                    title="Heure",
+                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45)
+                ),
+                y=alt.Y("humidite:Q", title="%", scale=alt.Scale(domain=[0, 100])),
+                tooltip=[
+                    alt.Tooltip("timestamp:T", title="Date/Heure", format="%d/%m/%Y %H:%M"),
+                    alt.Tooltip("humidite:Q", title="Humidité (%)", format=".1f")
+                ]
+            )
+            .properties(title="Humidité relative (%)", height=240)
             .interactive()
         )
         st.altair_chart(chart_hum, use_container_width=True)
@@ -852,10 +888,18 @@ with tab5:
             alt.Chart(df_plot.dropna(subset=["pression"]))
             .mark_line(interpolate="monotone", color="#f59e0b", strokeWidth=2)
             .encode(
-                x=alt.X("timestamp:T", title=""),
+                x=alt.X(
+                    "timestamp:T",
+                    title="Heure",
+                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45)
+                ),
                 y=alt.Y("pression:Q", title="hPa", scale=alt.Scale(domain=[p_min, p_max], zero=False)),
+                tooltip=[
+                    alt.Tooltip("timestamp:T", title="Date/Heure", format="%d/%m/%Y %H:%M"),
+                    alt.Tooltip("pression:Q", title="Pression (hPa)", format=".1f")
+                ]
             )
-            .properties(title="Pression atmosphérique relative (hPa)", height=260)
+            .properties(title="Pression atmosphérique relative (hPa)", height=240)
             .interactive()
         )
         st.altair_chart(chart_press, use_container_width=True)
@@ -893,30 +937,21 @@ with tab6:
 with tab7:
     st.subheader("📓 Journal de Bord & Climat")
     sheet_j = connecter_feuille_journal()
-
-    with st.form("form_journal"):
-        obs_texte = st.text_area("Ajouter une observation de terrain (potager, faune, météo remarquable...)")
-        auteur_obs = st.text_input("Auteur", value="Rémi")
-        submit_obs = st.form_submit_button("Enregistrer l'observation")
-
-        if submit_obs and obs_texte.strip():
-            if sheet_j:
-                try:
-                    sheet_j.append_row([current_timestamp.strftime("%Y-%m-%d %H:%M"), auteur_obs, obs_texte])
-                    st.success("Observation enregistrée avec succès dans le Google Sheet !")
-                except Exception as e:
-                    st.error(f"Erreur lors de l'enregistrement : {e}")
-            else:
-                st.warning("Impossible de joindre la feuille du journal de bord.")
-
-    st.markdown("### 📋 Historique des observations")
     if sheet_j:
         try:
-            records_j = sheet_j.get_all_records()
-            if records_j:
-                df_j = pd.DataFrame(records_j)
-                st.dataframe(df_j, use_container_width=True)
+            records = sheet_j.get_all_records()
+            if records:
+                st.dataframe(pd.DataFrame(records), use_container_width=True)
             else:
-                st.info("Aucune observation enregistrée pour le moment.")
+                st.info("Aucune observation enregistrée pour l'instant.")
         except Exception:
-            st.info("Chargement du journal impossible.")
+            st.warning("Impossible de lire les observations.")
+
+        with st.form("form_journal", clear_on_submit=True):
+            auteur = st.text_input("Auteur", value="Rémi")
+            obs = st.text_area("Nouvelle observation")
+            submit = st.form_submit_button("Enregistrer l'observation")
+            if submit and obs:
+                sheet_j.append_row([current_timestamp.strftime("%Y-%m-%d %H:%M"), auteur, obs])
+                st.success("Observation ajoutée avec succès !")
+                st.rerun()
