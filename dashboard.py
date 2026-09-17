@@ -553,6 +553,7 @@ delta_press = (
     if len(df_hist) >= 2 else 0.0
 )
 
+# CORRECTION DU CALCUL DES EXTRÊMES : Utilisation d'un filtrage souple avec repli si vide
 max_temp, min_temp, max_temp_time, min_temp_time = "--", "--", "", ""
 max_wind, max_gust = 0.0, 0.0
 if not df_hist.empty and "timestamp" in df_hist.columns:
@@ -562,21 +563,24 @@ if not df_hist.empty and "timestamp" in df_hist.columns:
             df_valid_time["timestamp"].dt.strftime("%Y-%m-%d")
             == current_timestamp.strftime("%Y-%m-%d")
         ]
-        if not df_today.empty:
-            df_today["temperature"] = pd.to_numeric(df_today["temperature"], errors="coerce")
-            df_today_clean = df_today[
-                (df_today["temperature"] >= -30) & (df_today["temperature"] <= 50)
+        # Si df_today est vide (ex: démarrage récent ou décalage de date), on se base sur tout l'historique disponible
+        df_calc = df_today if not df_today.empty else df_valid_time
+
+        if not df_calc.empty:
+            df_calc["temperature"] = pd.to_numeric(df_calc["temperature"], errors="coerce")
+            df_calc_clean = df_calc[
+                (df_calc["temperature"] >= -30) & (df_calc["temperature"] <= 50)
             ]
-            if not df_today_clean.empty:
+            if not df_calc_clean.empty:
                 max_t, min_t = (
-                    df_today_clean.loc[df_today_clean["temperature"].idxmax()],
-                    df_today_clean.loc[df_today_clean["temperature"].idxmin()],
+                    df_calc_clean.loc[df_calc_clean["temperature"].idxmax()],
+                    df_calc_clean.loc[df_calc_clean["temperature"].idxmin()],
                 )
                 max_temp, max_temp_time = max_t["temperature"], max_t["heure"]
                 min_temp, min_temp_time = min_t["temperature"], min_t["heure"]
             max_wind, max_gust = pd.to_numeric(
-                df_today["vent"], errors="coerce"
-            ).max(), pd.to_numeric(df_today["rafale"], errors="coerce").max()
+                df_calc["vent"], errors="coerce"
+            ).max(), pd.to_numeric(df_calc["rafale"], errors="coerce").max()
 
 tendance_val, tendance_libelle, prevision_texte, indice_confiance = (
     calculer_tendance_et_prevision_robuste(df_hist, pressure)
@@ -721,7 +725,6 @@ with tab2:
 with tab3:
     st.subheader("🌧️ Suivi de la Pluviométrie")
 
-    # Affichage des métriques de pluie (Jour, Mois, Année)
     c_p1, c_p2, c_p3 = st.columns(3)
     c_p1.metric("Pluie du jour", f"{rain_day} mm")
     c_p2.metric("Pluie du mois", f"{rain_month} mm")
@@ -893,22 +896,30 @@ with tab7:
     sheet_j = connecter_feuille_journal()
 
     with st.form("form_journal"):
-        st.write("Ajouter une observation manuelle (jardin, faune, météo...):")
-        obs_texte = st.text_area("Observation")
-        auteur_obs = st.text_input("Auteur", value="Rémi")
-        submit_obs = st.form_submit_button("Enregistrer")
+        auteur = st.text_input("Auteur / Nom", value="Rémi")
+        observation = st.text_area("Observation du jour (météo, jardin, nature...)")
+        submitted = st.form_submit_button("Enregistrer l'entrée")
 
-        if submit_obs and obs_texte.strip():
-            date_obs_str = current_timestamp.strftime("%Y-%m-%d %H:%M")
-            if sheet_j is not None:
-                sheet_j.append_row([date_obs_str, auteur_obs, obs_texte])
-                st.success("Enregistré !")
+        if submitted:
+            if sheet_j and observation:
+                try:
+                    date_jour = current_timestamp.strftime("%Y-%m-%d %H:%M")
+                    sheet_j.append_row([date_jour, auteur, observation])
+                    st.success("Entrée enregistrée avec succès dans le journal !")
+                except Exception as e:
+                    st.error(f"Erreur lors de l'enregistrement : {e}")
+            else:
+                st.warning("Veuillez saisir une observation avant de valider.")
 
-    st.markdown("### 📜 Historique des Observations")
-    if sheet_j is not None:
+    st.markdown("---")
+    st.markdown("### 📜 Entrées Récentes")
+    if sheet_j:
         try:
-            records_j = sheet_j.get_all_records()
-            if records_j:
-                st.dataframe(pd.DataFrame(records_j), use_container_width=True)
+            records = sheet_j.get_all_records()
+            if records:
+                df_j = pd.DataFrame(records)
+                st.dataframe(df_j.tail(10).iloc[::-1], use_container_width=True)
+            else:
+                st.info("Aucune observation enregistrée pour le moment.")
         except Exception:
-            pass
+            st.info("Impossible de charger l'historique du journal.")
