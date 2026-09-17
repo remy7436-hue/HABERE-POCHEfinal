@@ -563,7 +563,6 @@ if not df_hist.empty and "timestamp" in df_hist.columns:
             df_valid_time["timestamp"].dt.strftime("%Y-%m-%d")
             == current_timestamp.strftime("%Y-%m-%d")
         ]
-        # Si df_today est vide (ex: démarrage récent ou décalage de date), on se base sur tout l'historique disponible
         df_calc = df_today if not df_today.empty else df_valid_time
 
         if not df_calc.empty:
@@ -889,37 +888,35 @@ with tab6:
         nc1, nc2, nc3 = st.columns(3)
         nc1.metric("Normales T. Min", f"{normes['t_min']} °C")
         nc2.metric("Normales T. Max", f"{normes['t_max']} °C")
-        nc3.markdown(f"**Climatologie :**<br><span class='normal-desc'>{normes['desc']}</span>", unsafe_allow_html=True)
+        nc3.markdown(f"**Climatologie :** {normes['desc']}")
 
 with tab7:
     st.subheader("📓 Journal de Bord & Climat")
     sheet_j = connecter_feuille_journal()
 
     with st.form("form_journal"):
-        auteur = st.text_input("Auteur / Nom", value="Rémi")
-        observation = st.text_area("Observation du jour (météo, jardin, nature...)")
-        submitted = st.form_submit_button("Enregistrer l'entrée")
+        obs_texte = st.text_area("Ajouter une observation de terrain (potager, faune, météo remarquable...)")
+        auteur_obs = st.text_input("Auteur", value="Rémi")
+        submit_obs = st.form_submit_button("Enregistrer l'observation")
 
-        if submitted:
-            if sheet_j and observation:
+        if submit_obs and obs_texte.strip():
+            if sheet_j:
                 try:
-                    date_jour = current_timestamp.strftime("%Y-%m-%d %H:%M")
-                    sheet_j.append_row([date_jour, auteur, observation])
-                    st.success("Entrée enregistrée avec succès dans le journal !")
+                    sheet_j.append_row([current_timestamp.strftime("%Y-%m-%d %H:%M"), auteur_obs, obs_texte])
+                    st.success("Observation enregistrée avec succès dans le Google Sheet !")
                 except Exception as e:
                     st.error(f"Erreur lors de l'enregistrement : {e}")
             else:
-                st.warning("Veuillez saisir une observation avant de valider.")
+                st.warning("Impossible de joindre la feuille du journal de bord.")
 
-    st.markdown("---")
-    st.markdown("### 📜 Entrées Récentes")
+    st.markdown("### 📋 Historique des observations")
     if sheet_j:
         try:
-            records = sheet_j.get_all_records()
-            if records:
-                df_j = pd.DataFrame(records)
-                st.dataframe(df_j.tail(10).iloc[::-1], use_container_width=True)
+            records_j = sheet_j.get_all_records()
+            if records_j:
+                df_j = pd.DataFrame(records_j)
+                st.dataframe(df_j, use_container_width=True)
             else:
                 st.info("Aucune observation enregistrée pour le moment.")
         except Exception:
-            st.info("Impossible de charger l'historique du journal.")
+            st.info("Chargement du journal impossible.")
