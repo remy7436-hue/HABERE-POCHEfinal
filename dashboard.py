@@ -20,32 +20,49 @@ st.set_page_config(
     page_title="Météo Habère-Poche", page_icon="🏔️", layout="wide"
 )
 
-# 2. Application de styles CSS personnalisés
+# 2. Application de styles CSS personnalisés (Optimisés pour Mobile)
 st.markdown("""
     <style>
+    /* Fond general */
     .main {
         background-color: #f8fafc;
+        padding: 0.5rem;
     }
+
+    /* Adaptabilite cartes/metrics */
     .stMetric {
         background-color: #ffffff;
-        padding: 16px;
+        padding: 12px;
         border-radius: 12px;
-        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
         border: 1px solid #e2e8f0;
-        transition: transform 0.2s ease;
+        margin-bottom: 8px;
     }
-    .stMetric:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05);
+
+    /* Responsive mobile tuning */
+    @media (max-width: 768px) {
+        .main .block-container {
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
+            padding-top: 1rem !important;
+        }
+        [data-testid="stMetricValue"] {
+            font-size: 1.4rem !important;
+        }
+        [data-testid="stMetricLabel"] {
+            font-size: 0.85rem !important;
+        }
+        h1 {
+            font-size: 1.5rem !important;
+        }
+        h2, h3 {
+            font-size: 1.2rem !important;
+        }
     }
+
     h1, h2, h3 {
         color: #1e293b;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-    .normal-desc {
-        font-size: 1.1rem;
-        color: #475569;
-        font-weight: 500;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -498,7 +515,6 @@ wind_speed = get_val("wind", "wind_speed")
 wind_gust = get_val("wind", "wind_gust")
 wind_dir = get_val("wind", "wind_direction")
 
-# Récupération robuste de la pluviométrie (jour, mois, année)
 rain_day = get_val("rainfall", "day")
 if rain_day == 0.0:
     rain_day = get_val("rainfall", "daily") or get_val("precipitation", "rain_day") or get_val("rain", "day")
@@ -594,15 +610,16 @@ tendance_val, tendance_libelle, prevision_texte, indice_confiance = (
 )
 
 
-# 7. Onglets de l'application
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+# 7. Onglets de l'application (Tous les 8 onglets)
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "📊 Temps Réel & Extrêmes",
     "🧭 Rose des Vents",
     "🌧️ Pluviométrie",
     "☁️ Plancher Nuageux",
     "📈 Historique & Tendances",
     "💡 Prévisions & Analyse",
-    "📓 Journal de Bord & Climat"
+    "📓 Journal de Bord & Climat",
+    "🌐 Radar Météo & Pluie (Windy)"
 ])
 
 with tab1:
@@ -787,14 +804,24 @@ with tab4:
             line_color="red",
             annotation_text=f"☁️ Nuages ({altitude_mer} m)",
         )
+
+        # --- VERROUILLAGE TOTAL CONTRE LE DÉPLACEMENT/ZOOM/CLIC ---
         fig_pano.update_layout(
-            xaxis=dict(visible=False, range=[-0.5, 9.5]),
-            yaxis=dict(range=[400, 3000]),
+            xaxis=dict(visible=False, range=[-0.5, 9.5], fixedrange=True),
+            yaxis=dict(range=[400, 3000], fixedrange=True),
             height=320,
             margin=dict(l=10, r=10, t=40, b=10),
-            template="plotly_white"
+            template="plotly_white",
+            dragmode=False,
+            hovermode=False
         )
-        st.plotly_chart(fig_pano, use_container_width=True)
+
+        # Configuration stricte empêchant toute interaction mobile/desktop
+        st.plotly_chart(
+            fig_pano,
+            use_container_width=True,
+            config={'staticPlot': True, 'displayModeBar': False}
+        )
 
 with tab5:
     st.subheader("📈 Historique & Tendances (Altair)")
@@ -930,8 +957,8 @@ with tab6:
 
     with st.container(border=True):
         nc1, nc2, nc3 = st.columns(3)
-        nc1.metric("Normales T. Min", f"{normes['t_min']} °C")
-        nc2.metric("Normales T. Max", f"{normes['t_max']} °C")
+        nc1.metric("T. Normale Attendue (Min)", f"{normes['t_min']} °C")
+        nc2.metric("T. Normale Attendue (Max)", f"{normes['t_max']} °C")
         nc3.markdown(f"**Climatologie :** {normes['desc']}")
 
 with tab7:
@@ -948,10 +975,25 @@ with tab7:
             st.warning("Impossible de lire les observations.")
 
         with st.form("form_journal", clear_on_submit=True):
-            auteur = st.text_input("Auteur", value="Rémi")
+            auteur = st.text_input("Auteur", value="Rémy")
             obs = st.text_area("Nouvelle observation")
             submit = st.form_submit_button("Enregistrer l'observation")
             if submit and obs:
                 sheet_j.append_row([current_timestamp.strftime("%Y-%m-%d %H:%M"), auteur, obs])
                 st.success("Observation ajoutée avec succès !")
                 st.rerun()
+
+with tab8:
+    st.subheader("🌐 Radar Météo & Précipitations en direct (Windy)")
+    st.caption("Radar pluie / neige interactif centré sur la Vallée Verte & Habère-Poche (46.26°N, 6.47°E).")
+
+    windy_iframe_html = """
+    <iframe
+        width="100%"
+        height="480"
+        src="https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=mm&metricTemp=%C2%B0C&metricWind=km%2Fh&zoom=9&overlay=radar&product=radar&level=surface&lat=46.26&lon=6.47&detailLat=46.26&detailLon=6.47&marker=true"
+        frameborder="0"
+        style="border-radius:12px; border: 1px solid #e2e8f0;">
+    </iframe>
+    """
+    st.components.v1.html(windy_iframe_html, height=500)
