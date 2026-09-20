@@ -20,14 +20,17 @@ st.set_page_config(
     page_title="Météo Habère-Poche", page_icon="🏔️", layout="wide"
 )
 
-# 2. Styles CSS personnalisés
+# 2. Application de styles CSS personnalisés (Optimisés pour Mobile)
 st.markdown(
     """
     <style>
+    /* Fond général */
     .main {
         background-color: #f8fafc;
         padding: 0.5rem;
     }
+
+    /* Adaptabilité cartes/metrics */
     .stMetric {
         background-color: #ffffff;
         padding: 12px;
@@ -36,6 +39,8 @@ st.markdown(
         border: 1px solid #e2e8f0;
         margin-bottom: 8px;
     }
+
+    /* Responsive mobile tuning */
     @media (max-width: 768px) {
         .main .block-container {
             padding-left: 0.5rem !important;
@@ -48,9 +53,14 @@ st.markdown(
         [data-testid="stMetricLabel"] {
             font-size: 0.85rem !important;
         }
-        h1 { font-size: 1.5rem !important; }
-        h2, h3 { font-size: 1.2rem !important; }
+        h1 {
+            font-size: 1.5rem !important;
+        }
+        h2, h3 {
+            font-size: 1.2rem !important;
+        }
     }
+
     h1, h2, h3 {
         color: #1e293b;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -69,7 +79,7 @@ SHEET_NAME = "Historique_Meteo_Habere_Poche"
 SHEET_JOURNAL = "Journal_Observations"
 
 
-# 4. Connexion et gestion Google Sheets
+# 4. Connexion au Google Sheet
 @st.cache_resource
 def connecter_google_sheet():
     scope = [
@@ -275,7 +285,7 @@ def sauvegarder_mesure_gsheet(
     return df
 
 
-# 5. Fonctions utilitaires & calculs
+# 5. Fonctions utilitaires & conversion Ecowitt
 def to_float(val):
     if val is None or val == "":
         return 0.0
@@ -431,11 +441,10 @@ def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
     limite_3h = dernier_temps - pd.Timedelta(hours=3)
 
     df_3h = df_t[df_t["timestamp"] <= limite_3h]
-    pression_ref = (
-        df_3h["pression"].iloc[-1]
-        if not df_3h.empty
-        else df_t["pression"].iloc[0]
-    )
+    if not df_3h.empty:
+        pression_ref = df_3h["pression"].iloc[-1]
+    else:
+        pression_ref = df_t["pression"].iloc[0]
 
     tendance_3h = round(float(pression_actuelle - pression_ref), 2)
 
@@ -468,7 +477,7 @@ def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
     else:
         if pression_actuelle >= 1020:
             prevision = (
-                "☀️ Temps stable, sec et bien installé sur le secteur de la"
+                "☀️ Temps stable, sec et bien established sur le secteur de la"
                 " Vallée Verte."
             )
             indice_confiance = "Moyenne à Haute"
@@ -531,6 +540,7 @@ def fetch_ecowitt_data(app_key, api_key, mac):
 with st.sidebar:
     st.header("⚙️ Station Météo — Cloud")
     st.write("**Altitude :** 900 m (Habère-Poche)")
+
     st.markdown("---")
     lissage_active = st.checkbox(
         "Lissage vectoriel 3h (Rose des Vents)", value=True
@@ -544,7 +554,10 @@ st.title("🏔️ Station Météo — Habère-Poche")
 
 raw_data = fetch_ecowitt_data(ECOWITT_APP_KEY, ECOWITT_API_KEY, GW3000_MAC)
 if not raw_data or raw_data.get("code") != 0:
-    st.error("Impossible de récupérer les données depuis l'API Ecowitt.")
+    st.error(
+        "Impossible de récupérer les données depuis l'API Ecowitt. Vérifie tes"
+        " clés."
+    )
     st.stop()
 
 ds = raw_data.get("data", {})
@@ -552,7 +565,10 @@ ds = raw_data.get("data", {})
 
 def get_val(group, key):
     node = ds.get(group, {}).get(key, {})
-    val = node.get("value", 0.0) if isinstance(node, dict) else node
+    if isinstance(node, dict):
+        val = node.get("value", 0.0)
+    else:
+        val = node
     return to_float(val)
 
 
@@ -573,9 +589,21 @@ wind_speed = get_val("wind", "wind_speed")
 wind_gust = get_val("wind", "wind_gust")
 wind_dir = get_val("wind", "wind_direction")
 
-rain_day = get_val("rainfall", "day") or get_val("rainfall", "daily") or 0.0
-rain_month = get_val("rainfall", "month") or get_val("rainfall", "monthly") or 0.0
-rain_year = get_val("rainfall", "year") or get_val("rainfall", "yearly") or 0.0
+rain_day = get_val("rainfall", "day")
+if rain_day == 0.0:
+    rain_day = (
+        get_val("rainfall", "daily")
+        or get_val("precipitation", "rain_day")
+        or get_val("rain", "day")
+    )
+
+rain_month = get_val("rainfall", "month")
+if rain_month == 0.0:
+    rain_month = get_val("rainfall", "monthly") or get_val("rain", "month")
+
+rain_year = get_val("rainfall", "year")
+if rain_year == 0.0:
+    rain_year = get_val("rainfall", "yearly") or get_val("rain", "year")
 
 base_sol, altitude_mer = calculer_base_cumulus(temp, humidity, 900)
 temp_ressentie, mode_ressenti = calculer_ressenti(temp, wind_speed, humidity)
@@ -689,7 +717,7 @@ tendance_val, tendance_libelle, prevision_texte, indice_confiance = (
 )
 
 
-# 7. Structure par Onglets
+# 7. Onglets de l'application
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "📊 Temps Réel & Extrêmes",
     "🧭 Rose des Vents",
@@ -703,6 +731,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
 
 with tab1:
     st.subheader("📡 Conditions Actuelles (Flux Ecowitt Cloud)")
+
     with st.container(border=True):
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Température", f"{temp} °C", delta=f"{delta_temp:+.1f} °C")
@@ -743,12 +772,13 @@ with tab1:
         e3.metric("Vent max", f"{max_wind} km/h")
         e4.metric("Rafale max", f"{max_gust} km/h")
     st.caption(
-        f"Synchro cloud : **{current_time_str}** | Lignes enregistrées :"
+        f"Synchro cloud : **{current_time_str}** | Lignes Google Sheet :"
         f" **{len(df_hist)}**"
     )
 
 with tab2:
     st.subheader("🧭 Rose des Vents Améliorée (Google Sheet)")
+
     vent_analyse_texte, vent_icone = interpreter_vent_local(
         wind_dir, wind_speed
     )
@@ -874,6 +904,7 @@ with tab2:
 
 with tab3:
     st.subheader("🌧️ Suivi de la Pluviométrie")
+
     c_p1, c_p2, c_p3 = st.columns(3)
     c_p1.metric("Pluie du jour", f"{rain_day} mm")
     c_p2.metric("Pluie du mois", f"{rain_month} mm")
@@ -908,6 +939,7 @@ with tab3:
 
 with tab4:
     st.subheader("🏔️ Plancher Nuageux sur les Reliefs")
+
     if base_sol is not None and altitude_mer is not None:
         cp1, cp2 = st.columns(2)
         cp1.metric("Base des nuages (sol)", f"{base_sol} m")
@@ -939,8 +971,8 @@ with tab4:
 
 with tab5:
     st.subheader("📈 Historique & Tendances Barométriques")
+
     if not df_hist.empty:
-        # 1. Températures
         fig_temp = px.line(
             df_hist,
             x="timestamp",
@@ -951,7 +983,6 @@ with tab5:
         fig_temp.update_layout(height=280, template="plotly_white")
         st.plotly_chart(fig_temp, use_container_width=True)
 
-        # 2. Pression
         fig_press = px.line(
             df_hist,
             x="timestamp",
@@ -960,23 +991,12 @@ with tab5:
         )
         fig_press.update_layout(height=280, template="plotly_white")
         st.plotly_chart(fig_press, use_container_width=True)
-
-        # 3. Vent & Rafales (Inclus)
-        if "vent" in df_hist.columns and "rafale" in df_hist.columns:
-            fig_wind = px.line(
-                df_hist,
-                x="timestamp",
-                y=["vent", "rafale"],
-                title="Évolution du Vent Moyen et des Rafales (km/h)",
-                labels={"value": "Vitesse (km/h)", "variable": "Mesure"},
-            )
-            fig_wind.update_layout(height=280, template="plotly_white")
-            st.plotly_chart(fig_wind, use_container_width=True)
     else:
         st.info("Historique en cours de constitution.")
 
 with tab6:
     st.subheader("💡 Prévisions & Analyse Régionale")
+
     with st.container(border=True):
         st.markdown(f"### **Tendance :** {tendance_libelle}")
         st.write(f"**Prévision :** {prevision_texte}")
@@ -991,6 +1011,7 @@ with tab6:
 
 with tab7:
     st.subheader("📓 Journal de Bord & Climatologie")
+
     mois_actuel = current_timestamp.month
     normale = obtenir_normales_saison(mois_actuel)
 
