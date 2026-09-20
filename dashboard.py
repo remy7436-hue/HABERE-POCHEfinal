@@ -1080,13 +1080,8 @@ with tab7:
         st.warning("Impossible d'accéder à la feuille de journal.")
 
 with tab8:
-    st.subheader("🌐 Radar Météo & Pluie (Windy)")
-    windy_url = (
-        "https://embed.windy.com/embed2.html?"
-        "lat=46.216&lon=6.471&detailLat=46.216&detailLon=6.471"
-        "&width=650&height=450&zoom=10&level=surface"
-        "&overlay=radar&product=radar&menu=&message=&marker="
-        "&calendar=now&pressure=&type=map&location=coordinates"
-        "&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1"
-    )
-    st.components.v1.iframe(windy_url, height=480, scrolling=False)
+    st.subheader("🌐 Radar Météo & Pluie en direct (Windy)")
+
+    windy_html = """<iframe width="100%" height="450" src="https://embed.windy.com/embed2.html?lat=46.248&lon=6.472&detailLat=46.248&detailLon=6.472&width=100%25&height=450&zoom=10&level=surface&overlay=radar&product=radar&menu=&message=true&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1" frameborder="0"></iframe>"""
+
+    st.components.v1.html(windy_html, height=460)
