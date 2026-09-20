@@ -304,22 +304,8 @@ def degres_vers_cardinal(deg):
         return "N/A"
     try:
         dirs = [
-            "N",
-            "NNE",
-            "NE",
-            "ENE",
-            "E",
-            "ESE",
-            "SE",
-            "SSE",
-            "S",
-            "SSO",
-            "SO",
-            "OSO",
-            "O",
-            "ONO",
-            "NO",
-            "NNO",
+            "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+            "S", "SSO", "SO", "OSO", "O", "ONO", "NO", "NNO"
         ]
         return dirs[int((float(deg) + 11.25) / 22.5) % 16]
     except Exception:
@@ -496,66 +482,18 @@ def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
 
 def obtenir_normales_saison(mois):
     normales = {
-        1: {
-            "t_min": -3.0,
-            "t_max": 3.0,
-            "desc": "Hiver frais, neige fréquente.",
-        },
-        2: {
-            "t_min": -2.5,
-            "t_max": 4.5,
-            "desc": "Hiver persistant, gel matinal.",
-        },
-        3: {
-            "t_min": 0.0,
-            "t_max": 9.0,
-            "desc": "Début de transition printanière.",
-        },
-        4: {
-            "t_min": 3.0,
-            "t_max": 13.0,
-            "desc": "Printemps variable, giboulées.",
-        },
-        5: {
-            "t_min": 7.0,
-            "t_max": 17.5,
-            "desc": "Douceur printanière, verdissement.",
-        },
-        6: {
-            "t_min": 10.5,
-            "t_max": 21.5,
-            "desc": "Début d'été montagnard agréable.",
-        },
-        7: {
-            "t_min": 12.5,
-            "t_max": 24.0,
-            "desc": "Chaleur estivale modérée à 900m.",
-        },
-        8: {
-            "t_min": 12.0,
-            "t_max": 23.5,
-            "desc": "Période estivale stable, orages.",
-        },
-        9: {
-            "t_min": 8.5,
-            "t_max": 18.5,
-            "desc": "Automne précoce, nuits fraîches.",
-        },
-        10: {
-            "t_min": 5.0,
-            "t_max": 13.0,
-            "desc": "Saison des brumes et des pluies.",
-        },
-        11: {
-            "t_min": 0.5,
-            "t_max": 6.5,
-            "desc": "Premières neiges de basse montagne.",
-        },
-        12: {
-            "t_min": -2.0,
-            "t_max": 3.5,
-            "desc": "Ambiance hivernale au village.",
-        },
+        1: {"t_min": -3.0, "t_max": 3.0, "desc": "Hiver frais, neige fréquente."},
+        2: {"t_min": -2.5, "t_max": 4.5, "desc": "Hiver persistant, gel matinal."},
+        3: {"t_min": 0.0, "t_max": 9.0, "desc": "Début de transition printanière."},
+        4: {"t_min": 3.0, "t_max": 13.0, "desc": "Printemps variable, giboulées."},
+        5: {"t_min": 7.0, "t_max": 17.5, "desc": "Douceur printanière, verdissement."},
+        6: {"t_min": 10.5, "t_max": 21.5, "desc": "Début d'été montagnard agréable."},
+        7: {"t_min": 12.5, "t_max": 24.0, "desc": "Chaleur estivale modérée à 900m."},
+        8: {"t_min": 12.0, "t_max": 23.5, "desc": "Période estivale stable, orages."},
+        9: {"t_min": 8.5, "t_max": 18.5, "desc": "Automne précoce, nuits fraîches."},
+        10: {"t_min": 5.0, "t_max": 13.0, "desc": "Saison des brumes et des pluies."},
+        11: {"t_min": 0.5, "t_max": 6.5, "desc": "Premières neiges de basse montagne."},
+        12: {"t_min": -2.0, "t_max": 3.5, "desc": "Ambiance hivernale au village."},
     }
     return normales.get(
         mois,
@@ -710,7 +648,7 @@ delta_press = (
 )
 
 # --- CORRECTION DES EXTRÊMES DU JOUR ---
-max_temp, min_temp, max_temp_time, min_temp_time = "--", "--", "", ""
+max_temp, min_temp, max_temp_time, min_temp_time = "--", "--", "--", "--"
 max_wind, max_gust = 0.0, 0.0
 
 if not df_hist.empty and "timestamp" in df_hist.columns:
@@ -720,49 +658,48 @@ if not df_hist.empty and "timestamp" in df_hist.columns:
     date_aujourdhui = current_timestamp.date()
     df_today = df_calc[df_calc["timestamp"].dt.date == date_aujourdhui].copy()
 
-    if df_today.empty:
-        df_today = df_calc
-
-    df_today["temperature"] = pd.to_numeric(
-        df_today["temperature"], errors="coerce"
-    )
-    df_today_clean = df_today.dropna(subset=["temperature"])
-    df_today_clean = df_today_clean[
-        df_today_clean["temperature"].between(-30, 50)
-    ]
-
-    if not df_today_clean.empty:
-        idx_max = df_today_clean["temperature"].idxmax()
-        idx_min = df_today_clean["temperature"].idxmin()
-
-        max_temp = round(float(df_today_clean.loc[idx_max, "temperature"]), 1)
-        min_temp = round(float(df_today_clean.loc[idx_min, "temperature"]), 1)
-
-        ts_max = df_today_clean.loc[idx_max, "timestamp"]
-        ts_min = df_today_clean.loc[idx_min, "timestamp"]
-
-        max_temp_time = (
-            ts_max.strftime("%H:%M:%S")
-            if pd.notna(ts_max)
-            else df_today_clean.loc[idx_max, "heure"]
+    # Si nous avons des données pour aujourd'hui, nous calculons les extrêmes
+    if not df_today.empty:
+        df_today["temperature"] = pd.to_numeric(
+            df_today["temperature"], errors="coerce"
         )
-        min_temp_time = (
-            ts_min.strftime("%H:%M:%S")
-            if pd.notna(ts_min)
-            else df_today_clean.loc[idx_min, "heure"]
-        )
+        df_today_clean = df_today.dropna(subset=["temperature"])
+        df_today_clean = df_today_clean[
+            df_today_clean["temperature"].between(-30, 50)
+        ]
 
-    max_wind = pd.to_numeric(df_today["vent"], errors="coerce").max()
-    max_gust = pd.to_numeric(df_today["rafale"], errors="coerce").max()
-    max_wind = round(float(max_wind), 1) if pd.notna(max_wind) else 0.0
-    max_gust = round(float(max_gust), 1) if pd.notna(max_gust) else 0.0
+        if not df_today_clean.empty:
+            idx_max = df_today_clean["temperature"].idxmax()
+            idx_min = df_today_clean["temperature"].idxmin()
+
+            max_temp = round(float(df_today_clean.loc[idx_max, "temperature"]), 1)
+            min_temp = round(float(df_today_clean.loc[idx_min, "temperature"]), 1)
+
+            ts_max = df_today_clean.loc[idx_max, "timestamp"]
+            ts_min = df_today_clean.loc[idx_min, "timestamp"]
+
+            max_temp_time = (
+                ts_max.strftime("%H:%M:%S")
+                if pd.notna(ts_max)
+                else str(df_today_clean.loc[idx_max, "heure"])
+            )
+            min_temp_time = (
+                ts_min.strftime("%H:%M:%S")
+                if pd.notna(ts_min)
+                else str(df_today_clean.loc[idx_min, "heure"])
+            )
+
+        max_w = pd.to_numeric(df_today["vent"], errors="coerce").max()
+        max_g = pd.to_numeric(df_today["rafale"], errors="coerce").max()
+        max_wind = round(float(max_w), 1) if pd.notna(max_w) else 0.0
+        max_gust = round(float(max_g), 1) if pd.notna(max_g) else 0.0
 
 tendance_val, tendance_libelle, prevision_texte, indice_confiance = (
     calculer_tendance_et_prevision_robuste(df_hist, pressure)
 )
 
 
-# 7. Onglets de l'application (Tous les 8 onglets)
+# 7. Onglets de l'application
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "📊 Temps Réel & Extrêmes",
     "🧭 Rose des Vents",
@@ -807,12 +744,12 @@ with tab1:
         e1.metric(
             "Max Chaleur (Tx)",
             f"{max_temp} °C" if max_temp != "--" else "--",
-            f"à {max_temp_time}",
+            f"à {max_temp_time}" if max_temp_time != "--" else "",
         )
         e2.metric(
             "Min Fraîcheur (Tn)",
             f"{min_temp} °C" if min_temp != "--" else "--",
-            f"à {min_temp_time}",
+            f"à {min_temp_time}" if min_temp_time != "--" else "",
         )
         e3.metric("Vent max", f"{max_wind} km/h")
         e4.metric("Rafale max", f"{max_gust} km/h")
@@ -882,22 +819,8 @@ with tab2:
             bins_dir = [-11.25 + i * 22.5 for i in range(17)]
             labels_deg = [i * 22.5 for i in range(16)]
             noms_secteurs = [
-                "N",
-                "NNE",
-                "NE",
-                "ENE",
-                "E",
-                "ESE",
-                "SE",
-                "SSE",
-                "S",
-                "SSO",
-                "SO",
-                "OSO",
-                "O",
-                "ONO",
-                "NO",
-                "NNO",
+                "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+                "S", "SSO", "SO", "OSO", "O", "ONO", "NO", "NNO"
             ]
 
             df_rose["bin_deg"] = pd.cut(
@@ -1059,136 +982,81 @@ with tab5:
         st.plotly_chart(fig_press, use_container_width=True)
 
         # 3. Vent & Rafales
-        if "vent" in df_hist.columns and "rafale" in df_hist.columns:
-            fig_wind = px.line(
-                df_hist,
-                x="timestamp",
-                y=["vent", "rafale"],
-                title="Évolution du Vent Moyen et des Rafales (km/h)",
-                labels={"value": "Vitesse (km/h)", "variable": "Mesure"},
-            )
-            fig_wind.update_layout(height=280, template="plotly_white")
-            st.plotly_chart(fig_wind, use_container_width=True)
-
-        # 4. Direction du Vent (Altair avec repères N, E, S, O)
-        if "direction" in df_hist.columns:
-            st.markdown("---")
-            st.markdown("**Évolution de la Direction du Vent (°)**")
-
-            df_ref = pd.DataFrame([
-                {"deg": 0, "label": "N (0°)"},
-                {"deg": 90, "label": "E (90°)"},
-                {"deg": 180, "label": "S (180°)"},
-                {"deg": 270, "label": "O (270°)"},
-                {"deg": 360, "label": "N (360°)"},
-            ])
-
-            lignes_fond = (
-                alt.Chart(df_ref)
-                .mark_rule(color="#94a3b8", strokeDash=[4, 4], strokeWidth=1)
-                .encode(y=alt.Y("deg:Q", scale=alt.Scale(domain=[0, 360])))
-            )
-
-            textes_fond = (
-                alt.Chart(df_ref)
-                .mark_text(
-                    align="left", dx=5, dy=-5, color="#64748b", fontSize=11
-                )
-                .encode(y="deg:Q", text="label:N")
-            )
-
-            courbe_dir = (
-                alt.Chart(df_hist)
-                .mark_line(color="#0284c7")
-                .encode(
-                    x=alt.X("timestamp:T", title="Horodatage"),
-                    y=alt.Y(
-                        "direction:Q",
-                        title="Direction (°)",
-                        scale=alt.Scale(domain=[0, 360]),
-                    ),
-                )
-            )
-
-            chart_dir = (
-                alt.layer(lignes_fond, textes_fond, courbe_dir)
-                .properties(height=280)
-                .interactive()
-            )
-
-            st.altair_chart(chart_dir, use_container_width=True)
+        fig_wind = px.line(
+            df_hist,
+            x="timestamp",
+            y=["vent", "rafale"],
+            title="Évolution du Vent et Rafales (km/h)",
+            labels={"value": "Vitesse (km/h)", "variable": "Légende"},
+        )
+        fig_wind.update_layout(height=280, template="plotly_white")
+        st.plotly_chart(fig_wind, use_container_width=True)
     else:
-        st.info("Historique en cours de constitution.")
+        st.info("Aucun historique disponible pour le moment.")
 
 with tab6:
-    st.subheader("💡 Prévisions & Analyse Barométrique")
+    st.subheader("💡 Prévisions & Analyse Locale")
 
     col_p1, col_p2 = st.columns(2)
     with col_p1:
-        st.metric("Tendance barométrique (3h)", tendance_libelle)
-        st.caption(f"Indice de confiance : **{indice_confiance}**")
+        st.write("### 🧭 Tendances Barométriques")
+        st.write(f"**Tendance 3h :** {tendance_libelle}")
+        st.write(f"**Prévision :** {prevision_texte}")
+        st.write(f"**Indice de confiance :** {indice_confiance}")
 
     with col_p2:
-        st.metric("Évapotranspiration (ETP estimée)", f"{etp_val} mm/jour")
-        st.caption(f"Point de rosée : **{point_rosee} °C**")
+        st.write("### ❄️ Vigilance & Agro-Météo")
+        st.write(f"**Alerte gel :** {risque_gel}")
+        st.write(f"**Point de rosée :** {point_rosee} °C")
+        st.write(f"**Évapotranspiration (ETP estimée) :** {etp_val} mm/jour")
 
     st.markdown("---")
-    st.markdown("### 🔮 Tendances locales")
-    st.info(f"**Analyse automatique :** {prevision_texte}")
-    st.warning(f"**Vigilance Montagne & Jardin :** {risque_gel}")
+    st.write("### 📅 Normales Climatologiques (Habère-Poche / Vallée Verte)")
+    normale_mois = obtenir_normales_saison(current_timestamp.month)
+    cn1, cn2, cn3 = st.columns(3)
+    cn1.metric("Tn Normale", f"{normale_mois['t_min']} °C")
+    cn2.metric("Tx Normale", f"{normale_mois['t_max']} °C")
+    cn3.write(f"**Contexte :** {normale_mois['desc']}")
 
 with tab7:
-    st.subheader("📓 Journal de Bord & Climatologie")
+    st.subheader("📓 Journal de Bord & Observations Terrain")
 
-    mois_courant = current_timestamp.month
-    normale_saison = obtenir_normales_saison(mois_courant)
-
-    st.markdown(f"### 🌡️ Normales de saison — Mois {mois_courant}")
-    c_n1, c_n2, c_n3 = st.columns(3)
-    c_n1.metric("Tn Normale", f"{normale_saison['t_min']} °C")
-    c_n2.metric("Tx Normale", f"{normale_saison['t_max']} °C")
-    c_n3.write(f"**Description :** {normale_saison['desc']}")
-
-    st.markdown("---")
-    st.markdown("### 📝 Ajouter une observation locale")
+    sheet_journal = connecter_feuille_journal()
 
     with st.form("form_journal", clear_on_submit=True):
-        auteur = st.text_input("Auteur", value="Rémi")
-        obs_texte = st.text_area(
-            "Observation (ex: neige au col, floraison, gelée...)"
-        )
-        soumis = st.form_submit_button("Saisir dans le journal")
+        st.write("Ajouter une observation ou un événement météo local :")
+        auteur = st.text_input("Auteur / Observateur", value="Rémi")
+        obs_text = st.text_area("Observation (ex: chute de neige, orage, relevé manuel...)")
+        submitted = st.form_submit_button("Saisir dans le journal")
 
-        if soumis and obs_texte.strip():
-            sheet_j = connecter_feuille_journal()
-            if sheet_j:
+        if submitted and obs_text:
+            if sheet_journal:
                 date_str = current_timestamp.strftime("%Y-%m-%d %H:%M")
-                sheet_j.append_row([date_str, auteur, obs_texte])
-                st.success("Observation enregistrée dans Google Sheets !")
+                sheet_journal.append_row([date_str, auteur, obs_text])
+                st.success("Observation enregistrée dans le Google Sheet !")
+                time.sleep(1)
+                st.rerun()
             else:
-                st.error("Erreur de connexion au journal Google Sheets.")
+                st.error("Impossible de se connecter à la feuille de journal.")
 
     st.markdown("---")
-    st.markdown("### 📖 Dernières notes du journal")
-    sheet_j = connecter_feuille_journal()
-    if sheet_j:
+    st.write("### 📜 Dernières entrées du Journal")
+    if sheet_journal:
         try:
-            records_j = sheet_j.get_all_records()
-            if records_j:
-                df_j = pd.DataFrame(records_j)
-                st.dataframe(df_j.tail(10), use_container_width=True)
+            entries = sheet_journal.get_all_records()
+            if entries:
+                df_journal = pd.DataFrame(entries)
+                st.dataframe(df_journal.iloc[::-1], use_container_width=True)
             else:
-                st.write("Aucune observation enregistrée pour le moment.")
+                st.info("Le journal est vide pour le moment.")
         except Exception:
-            st.write("Impossible de charger les notes du journal.")
+            st.warning("Erreur lors de la lecture des notes du journal.")
 
 with tab8:
-    st.subheader("🌐 Radar Météo & Pluie en direct (Windy)")
+    st.subheader("🌐 Radar Météo & Cartographie Windy")
+    st.write("Situation générale en direct centrée sur Habère-Poche et le Chablais :")
 
     windy_html = """
-    <iframe width="100%" height="450"
-        src="https://embed.windy.com/embed2.html?lat=46.248&lon=6.472&detailLat=46.248&detailLon=6.472&width=100%25&height=450&zoom=10&level=surface&overlay=radar&product=radar&menu=&message=true&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1"
-        frameborder="0">
-    </iframe>
+    <iframe width="100%" height="450" src="https://embed.windy.com/embed2.html?lat=46.246&lon=6.472&detailLat=46.246&detailLon=6.472&width=650&height=450&zoom=10&level=surface&overlay=radar&product=radar&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1" frameborder="0"></iframe>
     """
-    st.components.v1.html(windy_html, height=460)
+    st.components.v1.html(windy_html, height=470)
