@@ -20,17 +20,14 @@ st.set_page_config(
     page_title="Météo Habère-Poche", page_icon="🏔️", layout="wide"
 )
 
-# 2. Application de styles CSS personnalisés (Optimisés pour Mobile)
+# 2. Styles CSS personnalisés
 st.markdown(
     """
     <style>
-    /* Fond général */
     .main {
         background-color: #f8fafc;
         padding: 0.5rem;
     }
-
-    /* Adaptabilité cartes/metrics */
     .stMetric {
         background-color: #ffffff;
         padding: 12px;
@@ -39,8 +36,6 @@ st.markdown(
         border: 1px solid #e2e8f0;
         margin-bottom: 8px;
     }
-
-    /* Responsive mobile tuning */
     @media (max-width: 768px) {
         .main .block-container {
             padding-left: 0.5rem !important;
@@ -53,14 +48,9 @@ st.markdown(
         [data-testid="stMetricLabel"] {
             font-size: 0.85rem !important;
         }
-        h1 {
-            font-size: 1.5rem !important;
-        }
-        h2, h3 {
-            font-size: 1.2rem !important;
-        }
+        h1 { font-size: 1.5rem !important; }
+        h2, h3 { font-size: 1.2rem !important; }
     }
-
     h1, h2, h3 {
         color: #1e293b;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -79,7 +69,7 @@ SHEET_NAME = "Historique_Meteo_Habere_Poche"
 SHEET_JOURNAL = "Journal_Observations"
 
 
-# 4. Connexion au Google Sheet
+# 4. Connexion et gestion Google Sheets
 @st.cache_resource
 def connecter_google_sheet():
     scope = [
@@ -145,6 +135,7 @@ def nettoyer_timestamp_robuste(valeur_brute):
     return pd.to_datetime(s, errors="coerce")
 
 
+@st.cache_data(ttl=300)
 def charger_historique_gsheet():
     df_vide = pd.DataFrame(
         columns=[
@@ -261,6 +252,7 @@ def sauvegarder_mesure_gsheet(
     try:
         sheet = connecter_google_sheet()
         sheet.append_row(nouvelle_ligne)
+        st.cache_data.clear()
     except Exception:
         pass
 
@@ -283,7 +275,7 @@ def sauvegarder_mesure_gsheet(
     return df
 
 
-# 5. Fonctions utilitaires & conversion Ecowitt
+# 5. Fonctions utilitaires & calculs
 def to_float(val):
     if val is None or val == "":
         return 0.0
@@ -356,7 +348,7 @@ def interpreter_vent_local(dir_deg, speed):
 
 
 def calculer_base_cumulus(temp, humidite, altitude_station=900):
-    if temp is None or humidite is None:
+    if temp is None or humidite is None or humidite <= 0:
         return None, None
     try:
         t, rh = float(temp), float(humidite)
@@ -392,7 +384,7 @@ def calculer_ressenti(temp, wind_speed_kmh, humidite):
 def analyser_risques_montagne(temp, humidite, pression):
     if temp is None or humidite is None:
         return "Indisponible", 0.1, 0.0
-    alpha = ((17.27 * temp) / (237.7 + temp)) + np.log(humidite / 100.0)
+    alpha = ((17.27 * temp) / (237.7 + temp)) + np.log(max(humidite, 1) / 100.0)
     dew_point = (237.7 * alpha) / (17.27 - alpha)
     risque = (
         "🚨 Risque de gel imminent !"
@@ -439,10 +431,11 @@ def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
     limite_3h = dernier_temps - pd.Timedelta(hours=3)
 
     df_3h = df_t[df_t["timestamp"] <= limite_3h]
-    if not df_3h.empty:
-        pression_ref = df_3h["pression"].iloc[-1]
-    else:
-        pression_ref = df_t["pression"].iloc[0]
+    pression_ref = (
+        df_3h["pression"].iloc[-1]
+        if not df_3h.empty
+        else df_t["pression"].iloc[0]
+    )
 
     tendance_3h = round(float(pression_actuelle - pression_ref), 2)
 
@@ -475,7 +468,7 @@ def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
     else:
         if pression_actuelle >= 1020:
             prevision = (
-                "☀️ Temps stable, sec et bien établi sur le secteur de la"
+                "☀️ Temps stable, sec et bien installé sur le secteur de la"
                 " Vallée Verte."
             )
             indice_confiance = "Moyenne à Haute"
@@ -496,66 +489,18 @@ def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
 
 def obtenir_normales_saison(mois):
     normales = {
-        1: {
-            "t_min": -3.0,
-            "t_max": 3.0,
-            "desc": "Hiver frais, neige fréquente.",
-        },
-        2: {
-            "t_min": -2.5,
-            "t_max": 4.5,
-            "desc": "Hiver persistant, gel matinal.",
-        },
-        3: {
-            "t_min": 0.0,
-            "t_max": 9.0,
-            "desc": "Début de transition printanière.",
-        },
-        4: {
-            "t_min": 3.0,
-            "t_max": 13.0,
-            "desc": "Printemps variable, giboulées.",
-        },
-        5: {
-            "t_min": 7.0,
-            "t_max": 17.5,
-            "desc": "Douceur printanière, verdissement.",
-        },
-        6: {
-            "t_min": 10.5,
-            "t_max": 21.5,
-            "desc": "Début d'été montagnard agréable.",
-        },
-        7: {
-            "t_min": 12.5,
-            "t_max": 24.0,
-            "desc": "Chaleur estivale modérée à 900m.",
-        },
-        8: {
-            "t_min": 12.0,
-            "t_max": 23.5,
-            "desc": "Période estivale stable, orages.",
-        },
-        9: {
-            "t_min": 8.5,
-            "t_max": 18.5,
-            "desc": "Automne précoce, nuits fraîches.",
-        },
-        10: {
-            "t_min": 5.0,
-            "t_max": 13.0,
-            "desc": "Saison des brumes et des pluies.",
-        },
-        11: {
-            "t_min": 0.5,
-            "t_max": 6.5,
-            "desc": "Premières neiges de basse montagne.",
-        },
-        12: {
-            "t_min": -2.0,
-            "t_max": 3.5,
-            "desc": "Ambiance hivernale au village.",
-        },
+        1: {"t_min": -3.0, "t_max": 3.0, "desc": "Hiver frais, neige fréquente."},
+        2: {"t_min": -2.5, "t_max": 4.5, "desc": "Hiver persistant, gel matinal."},
+        3: {"t_min": 0.0, "t_max": 9.0, "desc": "Début de transition printanière."},
+        4: {"t_min": 3.0, "t_max": 13.0, "desc": "Printemps variable, giboulées."},
+        5: {"t_min": 7.0, "t_max": 17.5, "desc": "Douceur printanière, verdissement."},
+        6: {"t_min": 10.5, "t_max": 21.5, "desc": "Début d'été montagnard agréable."},
+        7: {"t_min": 12.5, "t_max": 24.0, "desc": "Chaleur estivale modérée à 900m."},
+        8: {"t_min": 12.0, "t_max": 23.5, "desc": "Période estivale stable, orages."},
+        9: {"t_min": 8.5, "t_max": 18.5, "desc": "Automne précoce, nuits fraîches."},
+        10: {"t_min": 5.0, "t_max": 13.0, "desc": "Saison des brumes et des pluies."},
+        11: {"t_min": 0.5, "t_max": 6.5, "desc": "Premières neiges de basse montagne."},
+        12: {"t_min": -2.0, "t_max": 3.5, "desc": "Ambiance hivernale au village."},
     }
     return normales.get(
         mois,
@@ -586,23 +531,20 @@ def fetch_ecowitt_data(app_key, api_key, mac):
 with st.sidebar:
     st.header("⚙️ Station Météo — Cloud")
     st.write("**Altitude :** 900 m (Habère-Poche)")
-
     st.markdown("---")
     lissage_active = st.checkbox(
         "Lissage vectoriel 3h (Rose des Vents)", value=True
     )
 
     if st.button("🔄 Forcer la synchro & Actualiser"):
+        st.cache_data.clear()
         st.rerun()
 
 st.title("🏔️ Station Météo — Habère-Poche")
 
 raw_data = fetch_ecowitt_data(ECOWITT_APP_KEY, ECOWITT_API_KEY, GW3000_MAC)
 if not raw_data or raw_data.get("code") != 0:
-    st.error(
-        "Impossible de récupérer les données depuis l'API Ecowitt. Vérifie tes"
-        " clés."
-    )
+    st.error("Impossible de récupérer les données depuis l'API Ecowitt.")
     st.stop()
 
 ds = raw_data.get("data", {})
@@ -610,10 +552,7 @@ ds = raw_data.get("data", {})
 
 def get_val(group, key):
     node = ds.get(group, {}).get(key, {})
-    if isinstance(node, dict):
-        val = node.get("value", 0.0)
-    else:
-        val = node
+    val = node.get("value", 0.0) if isinstance(node, dict) else node
     return to_float(val)
 
 
@@ -634,21 +573,9 @@ wind_speed = get_val("wind", "wind_speed")
 wind_gust = get_val("wind", "wind_gust")
 wind_dir = get_val("wind", "wind_direction")
 
-rain_day = get_val("rainfall", "day")
-if rain_day == 0.0:
-    rain_day = (
-        get_val("rainfall", "daily")
-        or get_val("precipitation", "rain_day")
-        or get_val("rain", "day")
-    )
-
-rain_month = get_val("rainfall", "month")
-if rain_month == 0.0:
-    rain_month = get_val("rainfall", "monthly") or get_val("rain", "month")
-
-rain_year = get_val("rainfall", "year")
-if rain_year == 0.0:
-    rain_year = get_val("rainfall", "yearly") or get_val("rain", "year")
+rain_day = get_val("rainfall", "day") or get_val("rainfall", "daily") or 0.0
+rain_month = get_val("rainfall", "month") or get_val("rainfall", "monthly") or 0.0
+rain_year = get_val("rainfall", "year") or get_val("rainfall", "yearly") or 0.0
 
 base_sol, altitude_mer = calculer_base_cumulus(temp, humidity, 900)
 temp_ressentie, mode_ressenti = calculer_ressenti(temp, wind_speed, humidity)
@@ -709,7 +636,7 @@ delta_press = (
     else 0.0
 )
 
-# --- CORRECTION DES EXTRÊMES DU JOUR ---
+# Extrêmes du jour
 max_temp, min_temp, max_temp_time, min_temp_time = "--", "--", "", ""
 max_wind, max_gust = 0.0, 0.0
 
@@ -762,7 +689,7 @@ tendance_val, tendance_libelle, prevision_texte, indice_confiance = (
 )
 
 
-# 7. Onglets de l'application (Tous les 8 onglets)
+# 7. Structure par Onglets
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "📊 Temps Réel & Extrêmes",
     "🧭 Rose des Vents",
@@ -776,7 +703,6 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
 
 with tab1:
     st.subheader("📡 Conditions Actuelles (Flux Ecowitt Cloud)")
-
     with st.container(border=True):
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Température", f"{temp} °C", delta=f"{delta_temp:+.1f} °C")
@@ -817,13 +743,12 @@ with tab1:
         e3.metric("Vent max", f"{max_wind} km/h")
         e4.metric("Rafale max", f"{max_gust} km/h")
     st.caption(
-        f"Synchro cloud : **{current_time_str}** | Lignes Google Sheet :"
+        f"Synchro cloud : **{current_time_str}** | Lignes enregistrées :"
         f" **{len(df_hist)}**"
     )
 
 with tab2:
     st.subheader("🧭 Rose des Vents Améliorée (Google Sheet)")
-
     vent_analyse_texte, vent_icone = interpreter_vent_local(
         wind_dir, wind_speed
     )
@@ -949,7 +874,6 @@ with tab2:
 
 with tab3:
     st.subheader("🌧️ Suivi de la Pluviométrie")
-
     c_p1, c_p2, c_p3 = st.columns(3)
     c_p1.metric("Pluie du jour", f"{rain_day} mm")
     c_p2.metric("Pluie du mois", f"{rain_month} mm")
@@ -984,269 +908,123 @@ with tab3:
 
 with tab4:
     st.subheader("🏔️ Plancher Nuageux sur les Reliefs")
-    if base_sol is not None:
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Altitude village", "900 m")
-        c2.metric("Base des nuages / sol", f"+{base_sol} m")
-        c3.metric("Altitude absolue", f"{altitude_mer} m")
+    if base_sol is not None and altitude_mer is not None:
+        cp1, cp2 = st.columns(2)
+        cp1.metric("Base des nuages (sol)", f"{base_sol} m")
+        cp2.metric("Altitude / Mer (Habère-Poche)", f"{altitude_mer} m")
 
-        fig_pano = go.Figure()
-        img_path = "PXL_20260913_173725056.MP.jpg"
-        if os.path.exists(img_path):
-            with open(img_path, "rb") as f:
-                fig_pano.add_layout_image(
-                    dict(
-                        source=(
-                            "data:image/jpeg;base64,"
-                            f"{base64.b64encode(f.read()).decode()}"
-                        ),
-                        xref="x",
-                        yref="y",
-                        x=0,
-                        y=3000,
-                        sizex=10,
-                        sizey=2600,
-                        sizing="stretch",
-                        opacity=0.85,
-                        layer="below",
-                    )
-                )
-        fig_pano.add_hline(
-            y=altitude_mer,
-            line_dash="dash",
-            line_color="red",
-            annotation_text=f"☁️ Nuages ({altitude_mer} m)",
-        )
+        st.markdown("---")
+        st.write("**Repères topographiques locaux :**")
 
-        fig_pano.update_layout(
-            xaxis=dict(visible=False, range=[-0.5, 9.5], fixedrange=True),
-            yaxis=dict(range=[400, 3000], fixedrange=True),
-            height=320,
-            margin=dict(l=10, r=10, t=40, b=10),
-            template="plotly_white",
-            dragmode=False,
-            hovermode=False,
-        )
-
-        st.plotly_chart(
-            fig_pano,
-            use_container_width=True,
-            config={"staticPlot": True, "displayModeBar": False},
-        )
-
-with tab5:
-    st.subheader("📈 Historique & Tendances (Altair)")
-    if not df_hist.empty:
-        df_plot = df_hist.copy()
-        df_plot["timestamp"] = pd.to_datetime(
-            df_plot["timestamp"], errors="coerce"
-        )
-        df_plot["temperature"] = pd.to_numeric(
-            df_plot["temperature"], errors="coerce"
-        )
-        df_plot["ressenti"] = pd.to_numeric(
-            df_plot["ressenti"], errors="coerce"
-        )
-        df_plot["humidite"] = pd.to_numeric(
-            df_plot["humidite"], errors="coerce"
-        )
-        df_plot["pression"] = pd.to_numeric(
-            df_plot["pression"], errors="coerce"
-        )
-
-        df_plot = df_plot.dropna(subset=["timestamp"]).sort_values("timestamp")
-
-        valid_t = df_plot["temperature"].dropna()
-        y_min = floor(valid_t.min() - 2) if not valid_t.empty else 0
-        y_max = ceil(valid_t.max() + 2) if not valid_t.empty else 25
-
-        df_temp_melt = df_plot.melt(
-            id_vars=["timestamp"],
-            value_vars=["temperature", "ressenti"],
-            var_name="Type",
-            value_name="Valeur",
-        ).dropna(subset=["Valeur"])
-
-        df_temp_melt["Type"] = df_temp_melt["Type"].replace({
-            "temperature": "Température (°C)",
-            "ressenti": "Ressenti (°C)",
-        })
-
-        tooltip_temp = [
-            alt.Tooltip(
-                "timestamp:T", title="Date/Heure", format="%d/%m/%Y %H:%M"
-            ),
-            alt.Tooltip("Type:N", title="Mesure"),
-            alt.Tooltip("Valeur:Q", title="Valeur (°C)", format=".1f"),
+        sommets = [
+            ("Station Habère-Poche", 900),
+            ("Col de Terramont", 1100),
+            ("Mont Hirmentaz", 1607),
+            ("Mont Forchat", 1539),
         ]
 
-        chart_temp = (
-            alt.Chart(df_temp_melt)
-            .mark_line(interpolate="monotone")
-            .encode(
-                x=alt.X(
-                    "timestamp:T",
-                    title="Heure",
-                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45),
-                ),
-                y=alt.Y(
-                    "Valeur:Q",
-                    title="°C",
-                    scale=alt.Scale(domain=[y_min, y_max]),
-                ),
-                color=alt.Color(
-                    "Type:N",
-                    scale=alt.Scale(
-                        domain=["Température (°C)", "Ressenti (°C)"],
-                        range=["#0284c7", "#38bdf8"],
-                    ),
-                    legend=alt.Legend(title=""),
-                ),
-                tooltip=tooltip_temp,
-            )
-            .properties(title="Températures et Ressenti (°C)", height=280)
-            .interactive()
-        )
-        st.altair_chart(chart_temp, use_container_width=True)
-
-        chart_hum = (
-            alt.Chart(df_plot.dropna(subset=["humidite"]))
-            .mark_area(
-                interpolate="monotone",
-                color="#0d9488",
-                opacity=0.25,
-                line=dict(color="#0d9488", width=2),
-            )
-            .encode(
-                x=alt.X(
-                    "timestamp:T",
-                    title="Heure",
-                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45),
-                ),
-                y=alt.Y(
-                    "humidite:Q", title="%", scale=alt.Scale(domain=[0, 100])
-                ),
-                tooltip=[
-                    alt.Tooltip(
-                        "timestamp:T",
-                        title="Date/Heure",
-                        format="%d/%m/%Y %H:%M",
-                    ),
-                    alt.Tooltip(
-                        "humidite:Q", title="Humidité (%)", format=".1f"
-                    ),
-                ],
-            )
-            .properties(title="Humidité relative (%)", height=240)
-            .interactive()
-        )
-        st.altair_chart(chart_hum, use_container_width=True)
-
-        valid_p = df_plot["pression"].dropna()
-        p_min = floor(valid_p.min() - 2) if not valid_p.empty else 980
-        p_max = ceil(valid_p.max() + 2) if not valid_p.empty else 1040
-
-        chart_press = (
-            alt.Chart(df_plot.dropna(subset=["pression"]))
-            .mark_line(interpolate="monotone", color="#8b5cf6")
-            .encode(
-                x=alt.X(
-                    "timestamp:T",
-                    title="Heure",
-                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45),
-                ),
-                y=alt.Y(
-                    "pression:Q",
-                    title="hPa",
-                    scale=alt.Scale(domain=[p_min, p_max]),
-                ),
-                tooltip=[
-                    alt.Tooltip(
-                        "timestamp:T",
-                        title="Date/Heure",
-                        format="%d/%m/%Y %H:%M",
-                    ),
-                    alt.Tooltip(
-                        "pression:Q", title="Pression (hPa)", format=".1f"
-                    ),
-                ],
-            )
-            .properties(title="Pression atmosphérique (hPa)", height=240)
-            .interactive()
-        )
-        st.altair_chart(chart_press, use_container_width=True)
+        for nom, alt_sommet in sommets:
+            if altitude_mer <= alt_sommet:
+                st.caption(
+                    f"🌫️ **{nom}** ({alt_sommet} m) : Potentiellement dans les"
+                    " nuages ou le brouillard."
+                )
+            else:
+                st.caption(
+                    f"☀️ **{nom}** ({alt_sommet} m) : Au-dessus du plancher"
+                    " nuageux estimé."
+                )
     else:
-        st.info("Aucun historique disponible pour générer les graphiques.")
+        st.warning("Données insuffisantes pour estimer la base des nuages.")
+
+with tab5:
+    st.subheader("📈 Historique & Tendances Barométriques")
+    if not df_hist.empty:
+        # 1. Températures
+        fig_temp = px.line(
+            df_hist,
+            x="timestamp",
+            y=["temperature", "ressenti"],
+            title="Évolution des Températures (°C)",
+            labels={"value": "Température °C", "variable": "Légende"},
+        )
+        fig_temp.update_layout(height=280, template="plotly_white")
+        st.plotly_chart(fig_temp, use_container_width=True)
+
+        # 2. Pression
+        fig_press = px.line(
+            df_hist,
+            x="timestamp",
+            y="pression",
+            title="Évolution de la Pression Relative (hPa)",
+        )
+        fig_press.update_layout(height=280, template="plotly_white")
+        st.plotly_chart(fig_press, use_container_width=True)
+
+        # 3. Vent & Rafales (Inclus)
+        if "vent" in df_hist.columns and "rafale" in df_hist.columns:
+            fig_wind = px.line(
+                df_hist,
+                x="timestamp",
+                y=["vent", "rafale"],
+                title="Évolution du Vent Moyen et des Rafales (km/h)",
+                labels={"value": "Vitesse (km/h)", "variable": "Mesure"},
+            )
+            fig_wind.update_layout(height=280, template="plotly_white")
+            st.plotly_chart(fig_wind, use_container_width=True)
+    else:
+        st.info("Historique en cours de constitution.")
 
 with tab6:
-    st.subheader("💡 Prévisions & Analyse Barométrique")
-
-    col_p1, col_p2 = st.columns(2)
-    with col_p1:
-        st.metric("Tendance barométrique (3h)", tendance_libelle)
-        st.caption(f"Indice de confiance : **{indice_confiance}**")
-
-    with col_p2:
-        st.metric("Évapotranspiration (ETP estimée)", f"{etp_val} mm/jour")
-        st.caption(f"Point de rosée : **{point_rosee} °C**")
+    st.subheader("💡 Prévisions & Analyse Régionale")
+    with st.container(border=True):
+        st.markdown(f"### **Tendance :** {tendance_libelle}")
+        st.write(f"**Prévision :** {prevision_texte}")
+        st.caption(f"Indice de confiance : {indice_confiance}")
 
     st.markdown("---")
-    st.markdown("### 🔮 Tendances locales")
-    st.info(f"**Analyse automatique :** {prevision_texte}")
-    st.warning(f"**Vigilance Montagne & Jardin :** {risque_gel}")
+    st.subheader("⚠️ Analyse des Risques Locaux")
+    r1, r2, r3 = st.columns(3)
+    r1.metric("Risque de Gel", risque_gel)
+    r2.metric("Point de Rosée", f"{point_rosee} °C")
+    r3.metric("ETP estimée", f"{etp_val} mm/j")
 
 with tab7:
     st.subheader("📓 Journal de Bord & Climatologie")
+    mois_actuel = current_timestamp.month
+    normale = obtenir_normales_saison(mois_actuel)
 
-    mois_courant = current_timestamp.month
-    normale_saison = obtenir_normales_saison(mois_courant)
-
-    st.markdown(f"### 🌡️ Normales de saison — Mois {mois_courant}")
-    c_n1, c_n2, c_n3 = st.columns(3)
-    c_n1.metric("Tn Normale", f"{normale_saison['t_min']} °C")
-    c_n2.metric("Tx Normale", f"{normale_saison['t_max']} °C")
-    c_n3.write(f"**Description :** {normale_saison['desc']}")
-
-    st.markdown("---")
-    st.markdown("### 📝 Ajouter une observation locale")
-
-    with st.form("form_journal", clear_on_submit=True):
-        auteur = st.text_input("Auteur", value="Rémi")
-        obs_texte = st.text_area(
-            "Observation (ex: neige au col, floraison, gelée...)"
-        )
-        soumis = st.form_submit_button("Saisir dans le journal")
-
-        if soumis and obs_texte.strip():
-            sheet_j = connecter_feuille_journal()
-            if sheet_j:
-                date_str = current_timestamp.strftime("%Y-%m-%d %H:%M")
-                sheet_j.append_row([date_str, auteur, obs_texte])
-                st.success("Observation enregistrée dans Google Sheets !")
-            else:
-                st.error("Erreur de connexion au journal Google Sheets.")
+    st.markdown(f"### Normales de Saison (Mois {mois_actuel})")
+    cn1, cn2 = st.columns(2)
+    cn1.metric("Température Min Normale", f"{normale['t_min']} °C")
+    cn2.metric("Température Max Normale", f"{normale['t_max']} °C")
+    st.caption(normale["desc"])
 
     st.markdown("---")
-    st.markdown("### 📖 Dernières notes du journal")
-    sheet_j = connecter_feuille_journal()
-    if sheet_j:
-        try:
-            records_j = sheet_j.get_all_records()
-            if records_j:
-                df_j = pd.DataFrame(records_j)
-                st.dataframe(df_j.tail(10), use_container_width=True)
+    st.write("**Nouveau message au journal :**")
+
+    sheet_journal = connecter_feuille_journal()
+    with st.form("form_journal"):
+        auteur = st.text_input("Auteur", "Rémi")
+        obs = st.text_area("Observation météo / jardin")
+        btn_submit = st.form_submit_button("Saisir la remarque")
+
+        if btn_submit and obs:
+            if sheet_journal:
+                sheet_journal.append_row(
+                    [
+                        current_timestamp.strftime("%Y-%m-%d %H:%M"),
+                        auteur,
+                        obs,
+                    ]
+                )
+                st.success("Remarque enregistrée avec succès !")
             else:
-                st.write("Aucune observation enregistrée pour le moment.")
-        except Exception:
-            st.write("Impossible de charger les notes du journal.")
+                st.error("Erreur d'accès au Google Sheet Journal.")
 
 with tab8:
-    st.subheader("🌐 Radar Météo & Pluie en direct (Windy)")
-
-    windy_html = """
-    <iframe width="100%" height="450"
-        src="https://embed.windy.com/embed2.html?lat=46.248&lon=6.472&detailLat=46.248&detailLon=6.472&width=100%25&height=450&zoom=10&level=surface&overlay=radar&product=radar&menu=&message=true&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1"
-        frameborder="0">
-    </iframe>
-    """
-    st.components.v1.html(windy_html, height=460)
+    st.subheader("🌐 Radar Météo & Pluie (Windy)")
+    st.components.v1.iframe(
+        "https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=mm&metricTemp=%C2%B0C&metricWind=km%2Fh&zoom=10&overlay=rain&product=ecmwf&level=surface&lat=46.262&lon=6.471",
+        height=500,
+    )
