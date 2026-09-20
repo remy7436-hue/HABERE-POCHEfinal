@@ -647,7 +647,7 @@ delta_press = (
     else 0.0
 )
 
-# --- CORRECTION DES EXTRÊMES DU JOUR ---
+# --- CORRECTION ET CALCUL SOLIDE DES EXTRÊMES DU JOUR ---
 max_temp, min_temp, max_temp_time, min_temp_time = "--", "--", "--", "--"
 max_wind, max_gust = 0.0, 0.0
 
@@ -658,41 +658,53 @@ if not df_hist.empty and "timestamp" in df_hist.columns:
     date_aujourdhui = current_timestamp.date()
     df_today = df_calc[df_calc["timestamp"].dt.date == date_aujourdhui].copy()
 
-    # Si nous avons des données pour aujourd'hui, nous calculons les extrêmes
+    # Fallback : si aucune ou une seule ligne pour aujourd'hui, on consulte les 24 dernières heures
+    if len(df_today) < 2:
+        limite_24h = current_timestamp - pd.Timedelta(hours=24)
+        df_today = df_calc[df_calc["timestamp"] >= limite_24h].copy()
+
     if not df_today.empty:
-        df_today["temperature"] = pd.to_numeric(
-            df_today["temperature"], errors="coerce"
-        )
-        df_today_clean = df_today.dropna(subset=["temperature"])
-        df_today_clean = df_today_clean[
-            df_today_clean["temperature"].between(-30, 50)
+        for col_name in ["temperature", "vent", "rafale"]:
+            if col_name in df_today.columns:
+                df_today[col_name] = pd.to_numeric(
+                    df_today[col_name], errors="coerce"
+                )
+
+        df_temp_clean = df_today.dropna(subset=["temperature"])
+        df_temp_clean = df_temp_clean[
+            df_temp_clean["temperature"].between(-30, 50)
         ]
 
-        if not df_today_clean.empty:
-            idx_max = df_today_clean["temperature"].idxmax()
-            idx_min = df_today_clean["temperature"].idxmin()
+        if not df_temp_clean.empty:
+            idx_max = df_temp_clean["temperature"].idxmax()
+            idx_min = df_temp_clean["temperature"].idxmin()
 
-            max_temp = round(float(df_today_clean.loc[idx_max, "temperature"]), 1)
-            min_temp = round(float(df_today_clean.loc[idx_min, "temperature"]), 1)
+            max_temp = round(float(df_temp_clean.loc[idx_max, "temperature"]), 1)
+            min_temp = round(float(df_temp_clean.loc[idx_min, "temperature"]), 1)
 
-            ts_max = df_today_clean.loc[idx_max, "timestamp"]
-            ts_min = df_today_clean.loc[idx_min, "timestamp"]
+            ts_max = df_temp_clean.loc[idx_max, "timestamp"]
+            ts_min = df_temp_clean.loc[idx_min, "timestamp"]
 
             max_temp_time = (
                 ts_max.strftime("%H:%M:%S")
                 if pd.notna(ts_max)
-                else str(df_today_clean.loc[idx_max, "heure"])
+                else str(df_temp_clean.loc[idx_max, "heure"])
             )
             min_temp_time = (
                 ts_min.strftime("%H:%M:%S")
                 if pd.notna(ts_min)
-                else str(df_today_clean.loc[idx_min, "heure"])
+                else str(df_temp_clean.loc[idx_min, "heure"])
             )
 
-        max_w = pd.to_numeric(df_today["vent"], errors="coerce").max()
-        max_g = pd.to_numeric(df_today["rafale"], errors="coerce").max()
-        max_wind = round(float(max_w), 1) if pd.notna(max_w) else 0.0
-        max_gust = round(float(max_g), 1) if pd.notna(max_g) else 0.0
+        df_wind_clean = df_today.dropna(subset=["vent"])
+        if not df_wind_clean.empty:
+            max_w = df_wind_clean["vent"].max()
+            max_wind = round(float(max_w), 1) if pd.notna(max_w) else 0.0
+
+        df_gust_clean = df_today.dropna(subset=["rafale"])
+        if not df_gust_clean.empty:
+            max_g = df_gust_clean["rafale"].max()
+            max_gust = round(float(max_g), 1) if pd.notna(max_g) else 0.0
 
 tendance_val, tendance_libelle, prevision_texte, indice_confiance = (
     calculer_tendance_et_prevision_robuste(df_hist, pressure)
@@ -999,64 +1011,70 @@ with tab6:
 
     col_p1, col_p2 = st.columns(2)
     with col_p1:
-        st.write("### 🧭 Tendances Barométriques")
-        st.write(f"**Tendance 3h :** {tendance_libelle}")
-        st.write(f"**Prévision :** {prevision_texte}")
-        st.write(f"**Indice de confiance :** {indice_confiance}")
+        st.metric("Tendance barométrique (3h)", tendance_libelle)
+        st.caption(f"Indice de confiance : **{indice_confiance}**")
 
     with col_p2:
-        st.write("### ❄️ Vigilance & Agro-Météo")
-        st.write(f"**Alerte gel :** {risque_gel}")
-        st.write(f"**Point de rosée :** {point_rosee} °C")
-        st.write(f"**Évapotranspiration (ETP estimée) :** {etp_val} mm/jour")
+        st.metric("Évapotranspiration (ETP estimée)", f"{etp_val} mm/jour")
+        st.caption(f"Point de rosée : **{point_rosee} °C**")
 
     st.markdown("---")
-    st.write("### 📅 Normales Climatologiques (Habère-Poche / Vallée Verte)")
-    normale_mois = obtenir_normales_saison(current_timestamp.month)
-    cn1, cn2, cn3 = st.columns(3)
-    cn1.metric("Tn Normale", f"{normale_mois['t_min']} °C")
-    cn2.metric("Tx Normale", f"{normale_mois['t_max']} °C")
-    cn3.write(f"**Contexte :** {normale_mois['desc']}")
+    st.markdown("### 🔮 Tendances locales")
+    st.info(f"**Analyse automatique :** {prevision_texte}")
+    st.warning(f"**Vigilance Montagne & Jardin :** {risque_gel}")
 
 with tab7:
-    st.subheader("📓 Journal de Bord & Observations Terrain")
+    st.subheader("📓 Journal de Bord & Climatologie")
 
-    sheet_journal = connecter_feuille_journal()
+    mois_courant = current_timestamp.month
+    normale_saison = obtenir_normales_saison(mois_courant)
 
-    with st.form("form_journal", clear_on_submit=True):
-        st.write("Ajouter une observation ou un événement météo local :")
-        auteur = st.text_input("Auteur / Observateur", value="Rémi")
-        obs_text = st.text_area("Observation (ex: chute de neige, orage, relevé manuel...)")
-        submitted = st.form_submit_button("Saisir dans le journal")
-
-        if submitted and obs_text:
-            if sheet_journal:
-                date_str = current_timestamp.strftime("%Y-%m-%d %H:%M")
-                sheet_journal.append_row([date_str, auteur, obs_text])
-                st.success("Observation enregistrée dans le Google Sheet !")
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error("Impossible de se connecter à la feuille de journal.")
+    st.markdown(f"### 🌡️ Normales de saison — Mois {mois_courant}")
+    c_n1, c_n2, c_n3 = st.columns(3)
+    c_n1.metric("Tn Normale", f"{normale_saison['t_min']} °C")
+    c_n2.metric("Tx Normale", f"{normale_saison['t_max']} °C")
+    c_n3.write(f"**Description :** {normale_saison['desc']}")
 
     st.markdown("---")
-    st.write("### 📜 Dernières entrées du Journal")
-    if sheet_journal:
-        try:
-            entries = sheet_journal.get_all_records()
-            if entries:
-                df_journal = pd.DataFrame(entries)
-                st.dataframe(df_journal.iloc[::-1], use_container_width=True)
+    st.markdown("### 📝 Ajouter une observation locale")
+
+    with st.form("form_journal", clear_on_submit=True):
+        auteur = st.text_input("Auteur", value="Rémi")
+        obs_texte = st.text_area(
+            "Observation (ex: neige au col, floraison, gelée...)"
+        )
+        soumis = st.form_submit_button("Saisir dans le journal")
+
+        if soumis and obs_texte.strip():
+            sheet_j = connecter_feuille_journal()
+            if sheet_j:
+                date_str = current_timestamp.strftime("%Y-%m-%d %H:%M")
+                sheet_j.append_row([date_str, auteur, obs_texte])
+                st.success("Observation enregistrée dans Google Sheets !")
             else:
-                st.info("Le journal est vide pour le moment.")
+                st.error("Erreur de connexion au journal Google Sheets.")
+
+    st.markdown("---")
+    st.markdown("### 📖 Dernières notes du journal")
+    sheet_j = connecter_feuille_journal()
+    if sheet_j:
+        try:
+            records_j = sheet_j.get_all_records()
+            if records_j:
+                df_j = pd.DataFrame(records_j)
+                st.dataframe(df_j.tail(10), use_container_width=True)
+            else:
+                st.write("Aucune observation enregistrée pour le moment.")
         except Exception:
-            st.warning("Erreur lors de la lecture des notes du journal.")
+            st.write("Impossible de charger les notes du journal.")
 
 with tab8:
-    st.subheader("🌐 Radar Météo & Cartographie Windy")
-    st.write("Situation générale en direct centrée sur Habère-Poche et le Chablais :")
+    st.subheader("🌐 Radar Météo & Pluie en direct (Windy)")
 
     windy_html = """
-    <iframe width="100%" height="450" src="https://embed.windy.com/embed2.html?lat=46.246&lon=6.472&detailLat=46.246&detailLon=6.472&width=650&height=450&zoom=10&level=surface&overlay=radar&product=radar&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1" frameborder="0"></iframe>
+    <iframe width="100%" height="450"
+        src="https://embed.windy.com/embed2.html?lat=46.248&lon=6.472&detailLat=46.248&detailLon=6.472&width=100%25&height=450&zoom=10&level=surface&overlay=radar&product=radar&menu=&message=true&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1"
+        frameborder="0">
+    </iframe>
     """
-    st.components.v1.html(windy_html, height=470)
+    st.components.v1.html(windy_html, height=460)
