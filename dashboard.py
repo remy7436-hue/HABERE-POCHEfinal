@@ -1,4 +1,4 @@
-script = """import base64
+import base64
 from datetime import datetime, timedelta, timezone
 from math import ceil, floor
 import os
@@ -20,9 +20,9 @@ st.set_page_config(
     page_title="Météo Habère-Poche", page_icon="🏔️", layout="wide"
 )
 
-# 2. Application de styles CSS personnalisés (Optimisés pour Mobile)
+# 2. Application de styles CSS personnalisés (Optimisés pour Mobile & Tablette)
 st.markdown(
-    \"\"\"
+    """
     <style>
     /* Fond général */
     .main {
@@ -40,7 +40,7 @@ st.markdown(
         margin-bottom: 8px;
     }
 
-    /* Responsive mobile tuning */
+    /* Responsive mobile & tablette tuning */
     @media (max-width: 768px) {
         .main .block-container {
             padding-left: 0.5rem !important;
@@ -48,16 +48,16 @@ st.markdown(
             padding-top: 1rem !important;
         }
         [data-testid="stMetricValue"] {
-            font-size: 1.4rem !important;
+            font-size: 1.3rem !important;
         }
         [data-testid="stMetricLabel"] {
-            font-size: 0.85rem !important;
+            font-size: 0.8rem !important;
         }
         h1 {
-            font-size: 1.5rem !important;
+            font-size: 1.4rem !important;
         }
         h2, h3 {
-            font-size: 1.2rem !important;
+            font-size: 1.1rem !important;
         }
     }
 
@@ -66,7 +66,7 @@ st.markdown(
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     </style>
-\"\"\",
+""",
     unsafe_allow_html=True,
 )
 
@@ -95,7 +95,7 @@ def connecter_google_sheet():
                 key_val = base64.b64decode(key_val).decode("utf-8")
             except Exception:
                 pass
-            gcp_creds["private_key"] = key_val.replace("\\\\n", "\\n")
+            gcp_creds["private_key"] = key_val.replace("\\n", "\n")
 
     creds = Credentials.from_service_account_info(gcp_creds, scopes=scope)
     client = gspread.authorize(creds)
@@ -117,7 +117,7 @@ def connecter_feuille_journal():
                     key_val = base64.b64decode(key_val).decode("utf-8")
                 except Exception:
                     pass
-                gcp_creds["private_key"] = key_val.replace("\\\\n", "\\n")
+                gcp_creds["private_key"] = key_val.replace("\\n", "\n")
         creds = Credentials.from_service_account_info(gcp_creds, scopes=scope)
         client = gspread.authorize(creds)
         try:
@@ -136,7 +136,7 @@ def nettoyer_timestamp_robuste(valeur_brute):
     if pd.isna(valeur_brute):
         return pd.NaT
     s = str(valeur_brute).strip()
-    match = re.search(r"(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}(?::\\d{2})?)", s)
+    match = re.search(r"(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?)", s)
     if match:
         try:
             return pd.to_datetime(match.group(1))
@@ -647,7 +647,7 @@ delta_press = (
     else 0.0
 )
 
-# --- CORRECTION ET CALCUL SOLIDE DES EXTRÊMES DU JOUR ---
+# --- CALCUL DES EXTRÊMES DU JOUR ---
 max_temp, min_temp, max_temp_time, min_temp_time = "--", "--", "--", "--"
 max_wind, max_gust = 0.0, 0.0
 
@@ -655,14 +655,12 @@ if not df_hist.empty and "timestamp" in df_hist.columns:
     df_calc = df_hist.copy()
     df_calc["timestamp"] = pd.to_datetime(df_calc["timestamp"], errors="coerce")
 
-    # Conversion en naïf (sans tz) pour des comparaisons robustes sans TypeError
     current_ts_naive = current_timestamp.replace(tzinfo=None)
     date_aujourdhui = current_ts_naive.date()
 
     df_calc["timestamp_naive"] = df_calc["timestamp"].dt.tz_localize(None)
     df_today = df_calc[df_calc["timestamp_naive"].dt.date == date_aujourdhui].copy()
 
-    # Fallback : si moins de 2 mesures aujourd'hui, on consulte les 24 dernières heures
     if len(df_today) < 2:
         limite_24h = current_ts_naive - pd.Timedelta(hours=24)
         df_today = df_calc[df_calc["timestamp_naive"] >= limite_24h].copy()
@@ -995,204 +993,100 @@ with tab5:
 
         df_plot = df_plot.dropna(subset=["timestamp"]).sort_values("timestamp")
 
-        valid_t = df_plot["temperature"].dropna()
-        y_min = floor(valid_t.min() - 2) if not valid_t.empty else 0
-        y_max = ceil(valid_t.max() + 2) if not valid_t.empty else 25
-
-        df_temp_melt = df_plot.melt(
-            id_vars=["timestamp"],
-            value_vars=["temperature", "ressenti"],
-            var_name="Type",
-            value_name="Valeur",
-        ).dropna(subset=["Valeur"])
-
-        df_temp_melt["Type"] = df_temp_melt["Type"].replace({
-            "temperature": "Température (°C)",
-            "ressenti": "Ressenti (°C)",
-        })
-
-        tooltip_temp = [
-            alt.Tooltip(
-                "timestamp:T", title="Date/Heure", format="%d/%m/%Y %H:%M"
-            ),
-            alt.Tooltip("Type:N", title="Mesure"),
-            alt.Tooltip("Valeur:Q", title="Valeur (°C)", format=".1f"),
-        ]
-
+        # Graphique Température & Ressenti
         chart_temp = (
-            alt.Chart(df_temp_melt)
-            .mark_line(interpolate="monotone")
+            alt.Chart(df_plot)
+            .mark_line(color="#ef4444", strokeWidth=2)
             .encode(
-                x=alt.X(
-                    "timestamp:T",
-                    title="Heure",
-                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45),
-                ),
-                y=alt.Y(
-                    "Valeur:Q",
-                    title="°C",
-                    scale=alt.Scale(domain=[y_min, y_max]),
-                ),
-                color=alt.Color(
-                    "Type:N",
-                    scale=alt.Scale(
-                        domain=["Température (°C)", "Ressenti (°C)"],
-                        range=["#0284c7", "#38bdf8"],
-                    ),
-                    legend=alt.Legend(title=""),
-                ),
-                tooltip=tooltip_temp,
+                x=alt.X("timestamp:T", title="Heure"),
+                y=alt.Y("temperature:Q", title="Température (°C)"),
+                tooltip=["timestamp:T", "temperature:Q", "ressenti:Q"],
             )
-            .properties(title="Températures et Ressenti (°C)", height=280)
+            .properties(title="Évolution de la Température (°C)", height=250)
             .interactive()
         )
         st.altair_chart(chart_temp, use_container_width=True)
 
-        chart_hum = (
-            alt.Chart(df_plot.dropna(subset=["humidite"]))
-            .mark_area(
-                interpolate="monotone",
-                color="#0d9488",
-                opacity=0.25,
-                line=dict(color="#0d9488", width=2),
-            )
-            .encode(
-                x=alt.X(
-                    "timestamp:T",
-                    title="Heure",
-                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45),
-                ),
-                y=alt.Y(
-                    "humidite:Q", title="%", scale=alt.Scale(domain=[0, 100])
-                ),
-                tooltip=[
-                    alt.Tooltip(
-                        "timestamp:T",
-                        title="Date/Heure",
-                        format="%d/%m/%Y %H:%M",
-                    ),
-                    alt.Tooltip(
-                        "humidite:Q", title="Humidité (%)", format=".1f"
-                    ),
-                ],
-            )
-            .properties(title="Humidité relative (%)", height=240)
-            .interactive()
-        )
-        st.altair_chart(chart_hum, use_container_width=True)
-
-        valid_p = df_plot["pression"].dropna()
-        p_min = floor(valid_p.min() - 2) if not valid_p.empty else 980
-        p_max = ceil(valid_p.max() + 2) if not valid_p.empty else 1040
-
+        # Graphique Pression Barométrique
         chart_press = (
-            alt.Chart(df_plot.dropna(subset=["pression"]))
-            .mark_line(interpolate="monotone", color="#8b5cf6")
+            alt.Chart(df_plot)
+            .mark_line(color="#0284c7", strokeWidth=2)
             .encode(
-                x=alt.X(
-                    "timestamp:T",
-                    title="Heure",
-                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45),
-                ),
+                x=alt.X("timestamp:T", title="Heure"),
                 y=alt.Y(
                     "pression:Q",
-                    title="hPa",
-                    scale=alt.Scale(domain=[p_min, p_max]),
+                    title="Pression (hPa)",
+                    scale=alt.Scale(zero=False),
                 ),
-                tooltip=[
-                    alt.Tooltip(
-                        "timestamp:T",
-                        title="Date/Heure",
-                        format="%d/%m/%Y %H:%M",
-                    ),
-                    alt.Tooltip(
-                        "pression:Q", title="Pression (hPa)", format=".1f"
-                    ),
-                ],
+                tooltip=["timestamp:T", "pression:Q"],
             )
-            .properties(title="Pression atmosphérique (hPa)", height=240)
+            .properties(title="Pression Barométrique (hPa)", height=250)
             .interactive()
         )
         st.altair_chart(chart_press, use_container_width=True)
     else:
-        st.info("Aucun historique disponible pour générer les graphiques.")
+        st.info("Données historiques insuffisantes pour l'affichage des graphiques.")
 
 with tab6:
-    st.subheader("💡 Prévisions & Analyse Barométrique")
+    st.subheader("💡 Prévisions & Analyse Locale")
+    col_prev1, col_prev2 = st.columns(2)
 
-    col_p1, col_p2 = st.columns(2)
-    with col_p1:
-        st.metric("Tendance barométrique (3h)", tendance_libelle)
-        st.caption(f"Indice de confiance : **{indice_confiance}**")
+    with col_prev1:
+        st.markdown("### 📊 Tendance Barométrique")
+        st.metric("Tendance (3h)", f"{tendance_val:+.2f} hPa", tendance_libelle)
+        st.info(f"**Prévision court terme :** {prevision_texte}")
+        st.caption(f"Indice de confiance : {indice_confiance}")
 
-    with col_p2:
-        st.metric("Évapotranspiration (ETP estimée)", f"{etp_val} mm/jour")
-        st.caption(f"Point de rosée : **{point_rosee} °C**")
-
-    st.markdown("---")
-    st.markdown("### 🔮 Tendances locales")
-    st.info(f"**Analyse automatique :** {prevision_texte}")
-    st.warning(f"**Vigilance Montagne & Jardin :** {risque_gel}")
+    with col_prev2:
+        st.markdown("### 🏔️ Indice de Risques en Montagne")
+        st.write(f"**Risque de gel :** {risque_gel}")
+        st.write(f"**Point de rosée :** {point_rosee} °C")
+        st.write(f"**Évapotranspiration (ETP) :** ~{etp_val} mm/jour")
 
 with tab7:
     st.subheader("📓 Journal de Bord & Climatologie")
 
-    mois_courant = current_timestamp.month
-    normale_saison = obtenir_normales_saison(mois_courant)
+    mois_actuel = current_timestamp.month
+    normes = obtenir_normales_saison(mois_actuel)
 
-    st.markdown(f"### 🌡️ Normales de saison — Mois {mois_courant}")
-    c_n1, c_n2, c_n3 = st.columns(3)
-    c_n1.metric("Tn Normale", f"{normale_saison['t_min']} °C")
-    c_n2.metric("Tx Normale", f"{normale_saison['t_max']} °C")
-    c_n3.write(f"**Description :** {normale_saison['desc']}")
+    st.markdown(f"### 🌡️ Normales de saison (Mois {mois_actuel})")
+    st.write(f"**Tn moyenne :** {normes['t_min']} °C | **Tx moyenne :** {normes['t_max']} °C")
+    st.caption(normes["desc"])
 
     st.markdown("---")
-    st.markdown("### 📝 Ajouter une observation locale")
+    st.markdown("### 📝 Ajouter une observation")
 
-    with st.form("form_journal", clear_on_submit=True):
-        auteur = st.text_input("Auteur", value="Rémi")
-        obs_texte = st.text_area(
-            "Observation (ex: neige au col, floraison, gelée...)"
-        )
-        soumis = st.form_submit_button("Saisir dans le journal")
-
-        if soumis and obs_texte.strip():
-            sheet_j = connecter_feuille_journal()
-            if sheet_j:
-                date_str = current_timestamp.strftime("%Y-%m-%d %H:%M")
-                sheet_j.append_row([date_str, auteur, obs_texte])
-                st.success("Observation enregistrée dans Google Sheets !")
-            else:
-                st.error("Erreur de connexion au journal Google Sheets.")
-
-    st.markdown("---")
-    st.markdown("### 📖 Dernières notes du journal")
     sheet_j = connecter_feuille_journal()
     if sheet_j:
+        with st.form("form_journal", clear_on_submit=True):
+            auteur = st.text_input("Auteur", value="Rémi")
+            obs = st.text_area("Observation météo / jardin")
+            submitted = st.form_submit_button("Enregistrer")
+
+            if submitted and obs:
+                date_str = current_timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                sheet_j.append_row([date_str, auteur, obs])
+                st.success("Observation enregistrée dans Google Sheets !")
+
         try:
-            records_j = sheet_j.get_all_records()
-            if records_j:
-                df_j = pd.DataFrame(records_j)
-                st.dataframe(df_j.tail(10), use_container_width=True)
-            else:
-                st.write("Aucune observation enregistrée pour le moment.")
+            entries = sheet_j.get_all_records()
+            if entries:
+                st.markdown("### 📜 Dernières observations")
+                df_j = pd.DataFrame(entries).iloc[::-1]
+                st.dataframe(df_j, use_container_width=True)
         except Exception:
-            st.write("Impossible de charger les notes du journal.")
+            pass
+    else:
+        st.warning("Impossible d'accéder à la feuille de journal.")
 
 with tab8:
-    st.subheader("🌐 Radar Météo & Pluie en direct (Windy)")
-
-    windy_html = """
-    <iframe width="100%" height="450"
-        src="https://embed.windy.com/embed2.html?lat=46.248&lon=6.472&detailLat=46.248&detailLon=6.472&width=100%25&height=450&zoom=10&level=surface&overlay=radar&product=radar&menu=&message=true&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1"
-        frameborder="0">
-    </iframe>
-    """
-    st.components.v1.html(windy_html, height=460)
-\"\"\"
-
-try:
-    compile(script, '<string>', 'exec')
-    print("COMPILATION OK")
-except Exception as e:
-    print("ERROR:", e)
+    st.subheader("🌐 Radar Météo & Pluie (Windy)")
+    windy_url = (
+        "https://embed.windy.com/embed2.html?"
+        "lat=46.216&lon=6.471&detailLat=46.216&detailLon=6.471"
+        "&width=650&height=450&zoom=10&level=surface"
+        "&overlay=radar&product=radar&menu=&message=&marker="
+        "&calendar=now&pressure=&type=map&location=coordinates"
+        "&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1"
+    )
+    st.components.v1.iframe(windy_url, height=480, scrolling=False)
