@@ -1035,148 +1035,90 @@ with tab4:
         )
 
 with tab5:
-    st.subheader("📈 Historique & Tendances (Altair)")
+    st.subheader("📈 Historique & Tendances Barométriques")
     if not df_hist.empty:
-        df_plot = df_hist.copy()
-        df_plot["timestamp"] = pd.to_datetime(
-            df_plot["timestamp"], errors="coerce"
+        # 1. Températures
+        fig_temp = px.line(
+            df_hist,
+            x="timestamp",
+            y=["temperature", "ressenti"],
+            title="Évolution des Températures (°C)",
+            labels={"value": "Température °C", "variable": "Légende"},
         )
-        df_plot["temperature"] = pd.to_numeric(
-            df_plot["temperature"], errors="coerce"
+        fig_temp.update_layout(height=280, template="plotly_white")
+        st.plotly_chart(fig_temp, use_container_width=True)
+
+        # 2. Pression
+        fig_press = px.line(
+            df_hist,
+            x="timestamp",
+            y="pression",
+            title="Évolution de la Pression Relative (hPa)",
         )
-        df_plot["ressenti"] = pd.to_numeric(
-            df_plot["ressenti"], errors="coerce"
-        )
-        df_plot["humidite"] = pd.to_numeric(
-            df_plot["humidite"], errors="coerce"
-        )
-        df_plot["pression"] = pd.to_numeric(
-            df_plot["pression"], errors="coerce"
-        )
+        fig_press.update_layout(height=280, template="plotly_white")
+        st.plotly_chart(fig_press, use_container_width=True)
 
-        df_plot = df_plot.dropna(subset=["timestamp"]).sort_values("timestamp")
-
-        valid_t = df_plot["temperature"].dropna()
-        y_min = floor(valid_t.min() - 2) if not valid_t.empty else 0
-        y_max = ceil(valid_t.max() + 2) if not valid_t.empty else 25
-
-        df_temp_melt = df_plot.melt(
-            id_vars=["timestamp"],
-            value_vars=["temperature", "ressenti"],
-            var_name="Type",
-            value_name="Valeur",
-        ).dropna(subset=["Valeur"])
-
-        df_temp_melt["Type"] = df_temp_melt["Type"].replace({
-            "temperature": "Température (°C)",
-            "ressenti": "Ressenti (°C)",
-        })
-
-        tooltip_temp = [
-            alt.Tooltip(
-                "timestamp:T", title="Date/Heure", format="%d/%m/%Y %H:%M"
-            ),
-            alt.Tooltip("Type:N", title="Mesure"),
-            alt.Tooltip("Valeur:Q", title="Valeur (°C)", format=".1f"),
-        ]
-
-        chart_temp = (
-            alt.Chart(df_temp_melt)
-            .mark_line(interpolate="monotone")
-            .encode(
-                x=alt.X(
-                    "timestamp:T",
-                    title="Heure",
-                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45),
-                ),
-                y=alt.Y(
-                    "Valeur:Q",
-                    title="°C",
-                    scale=alt.Scale(domain=[y_min, y_max]),
-                ),
-                color=alt.Color(
-                    "Type:N",
-                    scale=alt.Scale(
-                        domain=["Température (°C)", "Ressenti (°C)"],
-                        range=["#0284c7", "#38bdf8"],
-                    ),
-                    legend=alt.Legend(title=""),
-                ),
-                tooltip=tooltip_temp,
+        # 3. Vent & Rafales
+        if "vent" in df_hist.columns and "rafale" in df_hist.columns:
+            fig_wind = px.line(
+                df_hist,
+                x="timestamp",
+                y=["vent", "rafale"],
+                title="Évolution du Vent Moyen et des Rafales (km/h)",
+                labels={"value": "Vitesse (km/h)", "variable": "Mesure"},
             )
-            .properties(title="Températures et Ressenti (°C)", height=280)
-            .interactive()
-        )
-        st.altair_chart(chart_temp, use_container_width=True)
+            fig_wind.update_layout(height=280, template="plotly_white")
+            st.plotly_chart(fig_wind, use_container_width=True)
 
-        chart_hum = (
-            alt.Chart(df_plot.dropna(subset=["humidite"]))
-            .mark_area(
-                interpolate="monotone",
-                color="#0d9488",
-                opacity=0.25,
-                line=dict(color="#0d9488", width=2),
-            )
-            .encode(
-                x=alt.X(
-                    "timestamp:T",
-                    title="Heure",
-                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45),
-                ),
-                y=alt.Y(
-                    "humidite:Q", title="%", scale=alt.Scale(domain=[0, 100])
-                ),
-                tooltip=[
-                    alt.Tooltip(
-                        "timestamp:T",
-                        title="Date/Heure",
-                        format="%d/%m/%Y %H:%M",
-                    ),
-                    alt.Tooltip(
-                        "humidite:Q", title="Humidité (%)", format=".1f"
-                    ),
-                ],
-            )
-            .properties(title="Humidité relative (%)", height=240)
-            .interactive()
-        )
-        st.altair_chart(chart_hum, use_container_width=True)
+        # 4. Direction du Vent (Altair avec repères N, E, S, O)
+        if "direction" in df_hist.columns:
+            st.markdown("---")
+            st.markdown("**Évolution de la Direction du Vent (°)**")
 
-        valid_p = df_plot["pression"].dropna()
-        p_min = floor(valid_p.min() - 2) if not valid_p.empty else 980
-        p_max = ceil(valid_p.max() + 2) if not valid_p.empty else 1040
+            df_ref = pd.DataFrame([
+                {"deg": 0, "label": "N (0°)"},
+                {"deg": 90, "label": "E (90°)"},
+                {"deg": 180, "label": "S (180°)"},
+                {"deg": 270, "label": "O (270°)"},
+                {"deg": 360, "label": "N (360°)"},
+            ])
 
-        chart_press = (
-            alt.Chart(df_plot.dropna(subset=["pression"]))
-            .mark_line(interpolate="monotone", color="#8b5cf6")
-            .encode(
-                x=alt.X(
-                    "timestamp:T",
-                    title="Heure",
-                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45),
-                ),
-                y=alt.Y(
-                    "pression:Q",
-                    title="hPa",
-                    scale=alt.Scale(domain=[p_min, p_max]),
-                ),
-                tooltip=[
-                    alt.Tooltip(
-                        "timestamp:T",
-                        title="Date/Heure",
-                        format="%d/%m/%Y %H:%M",
-                    ),
-                    alt.Tooltip(
-                        "pression:Q", title="Pression (hPa)", format=".1f"
-                    ),
-                ],
+            lignes_fond = (
+                alt.Chart(df_ref)
+                .mark_rule(color="#94a3b8", strokeDash=[4, 4], strokeWidth=1)
+                .encode(y=alt.Y("deg:Q", scale=alt.Scale(domain=[0, 360])))
             )
-            .properties(title="Pression atmosphérique (hPa)", height=240)
-            .interactive()
-        )
-        st.altair_chart(chart_press, use_container_width=True)
+
+            textes_fond = (
+                alt.Chart(df_ref)
+                .mark_text(
+                    align="left", dx=5, dy=-5, color="#64748b", fontSize=11
+                )
+                .encode(y="deg:Q", text="label:N")
+            )
+
+            courbe_dir = (
+                alt.Chart(df_hist)
+                .mark_line(color="#0284c7")
+                .encode(
+                    x=alt.X("timestamp:T", title="Horodatage"),
+                    y=alt.Y(
+                        "direction:Q",
+                        title="Direction (°)",
+                        scale=alt.Scale(domain=[0, 360]),
+                    ),
+                )
+            )
+
+            chart_dir = (
+                alt.layer(lignes_fond, textes_fond, courbe_dir)
+                .properties(height=280)
+                .interactive()
+            )
+
+            st.altair_chart(chart_dir, use_container_width=True)
     else:
-        st.info("Aucun historique disponible pour générer les graphiques.")
+        st.info("Historique en cours de constitution.")
 
 with tab6:
     st.subheader("💡 Prévisions & Analyse Barométrique")
