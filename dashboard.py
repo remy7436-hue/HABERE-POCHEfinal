@@ -21,15 +21,16 @@ st.set_page_config(
 )
 
 # 2. Application de styles CSS personnalisés (Optimisés pour Mobile)
-st.markdown("""
+st.markdown(
+    """
     <style>
-    /* Fond general */
+    /* Fond général */
     .main {
         background-color: #f8fafc;
         padding: 0.5rem;
     }
 
-    /* Adaptabilite cartes/metrics */
+    /* Adaptabilité cartes/metrics */
     .stMetric {
         background-color: #ffffff;
         padding: 12px;
@@ -65,7 +66,9 @@ st.markdown("""
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # 3. Récupération des secrets (Ecowitt + Google Sheets)
 ECOWITT_API_KEY = st.secrets.get("ECOWITT_API_KEY", "")
@@ -120,7 +123,9 @@ def connecter_feuille_journal():
         try:
             sheet_j = client.open(SHEET_NAME).worksheet(SHEET_JOURNAL)
         except Exception:
-            sheet_j = client.open(SHEET_NAME).add_worksheet(title=SHEET_JOURNAL, rows=100, cols=3)
+            sheet_j = client.open(SHEET_NAME).add_worksheet(
+                title=SHEET_JOURNAL, rows=100, cols=3
+            )
             sheet_j.append_row(["Date", "Auteur", "Observation"])
         return sheet_j
     except Exception:
@@ -141,26 +146,30 @@ def nettoyer_timestamp_robuste(valeur_brute):
 
 
 def charger_historique_gsheet():
-    df_vide = pd.DataFrame(columns=[
-        "timestamp",
-        "heure",
-        "temperature",
-        "ressenti",
-        "humidite",
-        "pression",
-        "pression_abs",
-        "vent",
-        "rafale",
-        "direction",
-        "pluie",
-    ])
+    df_vide = pd.DataFrame(
+        columns=[
+            "timestamp",
+            "heure",
+            "temperature",
+            "ressenti",
+            "humidite",
+            "pression",
+            "pression_abs",
+            "vent",
+            "rafale",
+            "direction",
+            "pluie",
+        ]
+    )
     try:
         sheet = connecter_google_sheet()
         data = sheet.get_all_records()
         if data:
             df = pd.DataFrame(data)
             if not df.empty and "timestamp" in df.columns:
-                df["timestamp"] = df["timestamp"].apply(nettoyer_timestamp_robuste)
+                df["timestamp"] = df["timestamp"].apply(
+                    nettoyer_timestamp_robuste
+                )
                 df = df.dropna(subset=["timestamp"])
 
                 if not df.empty:
@@ -180,9 +189,18 @@ def charger_historique_gsheet():
                             df[col] = pd.to_numeric(df[col], errors="coerce")
 
                     df = df[
-                        (df["temperature"].between(-30, 50) | df["temperature"].isna()) &
-                        (df["pression"].between(900, 1100) | df["pression"].isna()) &
-                        (df["humidite"].between(0, 100) | df["humidite"].isna())
+                        (
+                            df["temperature"].between(-30, 50)
+                            | df["temperature"].isna()
+                        )
+                        & (
+                            df["pression"].between(900, 1100)
+                            | df["pression"].isna()
+                        )
+                        & (
+                            df["humidite"].between(0, 100)
+                            | df["humidite"].isna()
+                        )
                     ]
 
                     df = (
@@ -246,19 +264,21 @@ def sauvegarder_mesure_gsheet(
     except Exception:
         pass
 
-    nouvelle_df = pd.DataFrame([{
-        "timestamp": timestamp_propre,
-        "heure": heure,
-        "temperature": temp,
-        "ressenti": ressenti,
-        "humidite": humidite,
-        "pression": pression,
-        "pression_abs": pression_abs,
-        "vent": vent,
-        "rafale": rafale,
-        "direction": direction,
-        "pluie": pluie,
-    }])
+    nouvelle_df = pd.DataFrame([
+        {
+            "timestamp": timestamp_propre,
+            "heure": heure,
+            "temperature": temp,
+            "ressenti": ressenti,
+            "humidite": humidite,
+            "pression": pression,
+            "pression_abs": pression_abs,
+            "vent": vent,
+            "rafale": rafale,
+            "direction": direction,
+            "pluie": pluie,
+        }
+    ])
     df = pd.concat([df, nouvelle_df], ignore_index=True)
     return df
 
@@ -284,8 +304,22 @@ def degres_vers_cardinal(deg):
         return "N/A"
     try:
         dirs = [
-            "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-            "S", "SSO", "SO", "OSO", "O", "ONO", "NO", "NNO"
+            "N",
+            "NNE",
+            "NE",
+            "ENE",
+            "E",
+            "ESE",
+            "SE",
+            "SSE",
+            "S",
+            "SSO",
+            "SO",
+            "OSO",
+            "O",
+            "ONO",
+            "NO",
+            "NNO",
         ]
         return dirs[int((float(deg) + 11.25) / 22.5) % 16]
     except Exception:
@@ -300,13 +334,25 @@ def interpreter_vent_local(dir_deg, speed):
     if speed < 1.5:
         return "Conditions calmes, pas d'influence dynamique notable.", "🟢"
     elif 30 <= d <= 80:
-        return "Flux de Nord-Est / Est : Tendance à la bise locale, temps souvent plus sec et dégagé sur les reliefs.", "🌬️"
+        return (
+            "Flux de Nord-Est / Est : Tendance à la bise locale, temps souvent"
+            " plus sec et dégagé sur les reliefs."
+        ), "🌬️"
     elif 140 <= d <= 220:
-        return "Flux de Sud / Sud-Ouest : Remontées douces, humidité potentielle en provenance de la vallée.", "↗️"
+        return (
+            "Flux de Sud / Sud-Ouest : Remontées douces, humidité potentielle en"
+            " provenance de la vallée."
+        ), "↗️"
     elif 270 <= d <= 330:
-        return "Flux de Nord-Ouest / Ouest : Passage de masses d'air instables, risque d'averses sur les Préalpes.", "🌧️"
+        return (
+            "Flux de Nord-Ouest / Ouest : Passage de masses d'air instables,"
+            " risque d'averses sur les Préalpes."
+        ), "🌧️"
     else:
-        return f"Flux sectoriel orienté au {degres_vers_cardinal(d)} ({int(d)}°), régime classique de moyenne montagne.", "💨"
+        return (
+            f"Flux sectoriel orienté au {degres_vers_cardinal(d)} ({int(d)}°),"
+            " régime classique de moyenne montagne."
+        ), "💨"
 
 
 def calculer_base_cumulus(temp, humidite, altitude_station=900):
@@ -364,7 +410,11 @@ def analyser_risques_montagne(temp, humidite, pression):
 
 
 def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
-    if df_hist is None or len(df_hist) < 2 or "timestamp" not in df_hist.columns:
+    if (
+        df_hist is None
+        or len(df_hist) < 2
+        or "timestamp" not in df_hist.columns
+    ):
         return (
             0.0,
             "Stable (données insuffisantes)",
@@ -377,7 +427,11 @@ def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
         return (
             0.0,
             "Stable",
-            "☀️ Temps beau, stable et sec" if pression_actuelle >= 1025 else "☁️ Temps changeant",
+            (
+                "☀️ Temps beau, stable et sec"
+                if pression_actuelle >= 1025
+                else "☁️ Temps changeant"
+            ),
             "Stabilité correcte",
         )
 
@@ -412,20 +466,29 @@ def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
         indice_confiance = "Élevée (Anticyclonique)"
     elif tendance_3h <= -1.0:
         prevision = (
-            "🌧️ Dégradation marquée confirmée, approche d'une perturbation active."
+            "🌧️ Dégradation marquée confirmée, approche d'une perturbation"
+            " active."
             if pression_actuelle < 1015
             else "⚠️ Baisse rapide de pression, changement de temps imminent."
         )
         indice_confiance = "Élevée (Passage perturbé)"
     else:
         if pression_actuelle >= 1020:
-            prevision = "☀️ Temps stable, sec et bien établi sur le secteur de la Vallée Verte."
+            prevision = (
+                "☀️ Temps stable, sec et bien établi sur le secteur de la"
+                " Vallée Verte."
+            )
             indice_confiance = "Moyenne à Haute"
         elif pression_actuelle <= 1005:
-            prevision = "☁️ Conditions dépressionnaires persistantes, passages nuageux fréquents."
+            prevision = (
+                "☁️ Conditions dépressionnaires persistantes, passages nuageux"
+                " fréquents."
+            )
             indice_confiance = "Moyenne"
         else:
-            prevision = "☁️ Temps variable et de saison, alternance d'éclaircies."
+            prevision = (
+                "☁️ Temps variable et de saison, alternance d'éclaircies."
+            )
             indice_confiance = "Modérée (Variable)"
 
     return tendance_3h, libelle_tendance, prevision, indice_confiance
@@ -433,20 +496,71 @@ def calculer_tendance_et_prevision_robuste(df_hist, pression_actuelle):
 
 def obtenir_normales_saison(mois):
     normales = {
-        1: {"t_min": -3.0, "t_max": 3.0, "desc": "Hiver frais, neige fréquente."},
-        2: {"t_min": -2.5, "t_max": 4.5, "desc": "Hiver persistant, gel matinal."},
-        3: {"t_min": 0.0, "t_max": 9.0, "desc": "Début de transition printanière."},
-        4: {"t_min": 3.0, "t_max": 13.0, "desc": "Printemps variable, giboulées."},
-        5: {"t_min": 7.0, "t_max": 17.5, "desc": "Douceur printanière, verdissement."},
-        6: {"t_min": 10.5, "t_max": 21.5, "desc": "Début d'été montagnard agréable."},
-        7: {"t_min": 12.5, "t_max": 24.0, "desc": "Chaleur estivale modérée à 900m."},
-        8: {"t_min": 12.0, "t_max": 23.5, "desc": "Période estivale stable, orages."},
-        9: {"t_min": 8.5, "t_max": 18.5, "desc": "Automne précoce, nuits fraîches."},
-        10: {"t_min": 5.0, "t_max": 13.0, "desc": "Saison des brumes et des pluies."},
-        11: {"t_min": 0.5, "t_max": 6.5, "desc": "Premières neiges de basse montagne."},
-        12: {"t_min": -2.0, "t_max": 3.5, "desc": "Ambiance hivernale au village."},
+        1: {
+            "t_min": -3.0,
+            "t_max": 3.0,
+            "desc": "Hiver frais, neige fréquente.",
+        },
+        2: {
+            "t_min": -2.5,
+            "t_max": 4.5,
+            "desc": "Hiver persistant, gel matinal.",
+        },
+        3: {
+            "t_min": 0.0,
+            "t_max": 9.0,
+            "desc": "Début de transition printanière.",
+        },
+        4: {
+            "t_min": 3.0,
+            "t_max": 13.0,
+            "desc": "Printemps variable, giboulées.",
+        },
+        5: {
+            "t_min": 7.0,
+            "t_max": 17.5,
+            "desc": "Douceur printanière, verdissement.",
+        },
+        6: {
+            "t_min": 10.5,
+            "t_max": 21.5,
+            "desc": "Début d'été montagnard agréable.",
+        },
+        7: {
+            "t_min": 12.5,
+            "t_max": 24.0,
+            "desc": "Chaleur estivale modérée à 900m.",
+        },
+        8: {
+            "t_min": 12.0,
+            "t_max": 23.5,
+            "desc": "Période estivale stable, orages.",
+        },
+        9: {
+            "t_min": 8.5,
+            "t_max": 18.5,
+            "desc": "Automne précoce, nuits fraîches.",
+        },
+        10: {
+            "t_min": 5.0,
+            "t_max": 13.0,
+            "desc": "Saison des brumes et des pluies.",
+        },
+        11: {
+            "t_min": 0.5,
+            "t_max": 6.5,
+            "desc": "Premières neiges de basse montagne.",
+        },
+        12: {
+            "t_min": -2.0,
+            "t_max": 3.5,
+            "desc": "Ambiance hivernale au village.",
+        },
     }
-    return normales.get(mois, {"t_min": 5.0, "t_max": 15.0, "desc": "Normales de saison standard."})
+    return normales.get(
+        mois,
+        {"t_min": 5.0, "t_max": 15.0, "desc": "Normales de saison standard."},
+    )
 
 
 # 6. Récupération API Ecowitt
@@ -474,7 +588,9 @@ with st.sidebar:
     st.write("**Altitude :** 900 m (Habère-Poche)")
 
     st.markdown("---")
-    lissage_active = st.checkbox("Lissage vectoriel 3h (Rose des Vents)", value=True)
+    lissage_active = st.checkbox(
+        "Lissage vectoriel 3h (Rose des Vents)", value=True
+    )
 
     if st.button("🔄 Forcer la synchro & Actualiser"):
         st.rerun()
@@ -483,7 +599,10 @@ st.title("🏔️ Station Météo — Habère-Poche")
 
 raw_data = fetch_ecowitt_data(ECOWITT_APP_KEY, ECOWITT_API_KEY, GW3000_MAC)
 if not raw_data or raw_data.get("code") != 0:
-    st.error("Impossible de récupérer les données depuis l'API Ecowitt. Vérifie tes clés.")
+    st.error(
+        "Impossible de récupérer les données depuis l'API Ecowitt. Vérifie tes"
+        " clés."
+    )
     st.stop()
 
 ds = raw_data.get("data", {})
@@ -517,7 +636,11 @@ wind_dir = get_val("wind", "wind_direction")
 
 rain_day = get_val("rainfall", "day")
 if rain_day == 0.0:
-    rain_day = get_val("rainfall", "daily") or get_val("precipitation", "rain_day") or get_val("rain", "day")
+    rain_day = (
+        get_val("rainfall", "daily")
+        or get_val("precipitation", "rain_day")
+        or get_val("rain", "day")
+    )
 
 rain_month = get_val("rainfall", "month")
 if rain_month == 0.0:
@@ -529,14 +652,16 @@ if rain_year == 0.0:
 
 base_sol, altitude_mer = calculer_base_cumulus(temp, humidity, 900)
 temp_ressentie, mode_ressenti = calculer_ressenti(temp, wind_speed, humidity)
-risque_gel, etp_val, point_rosee = analyser_risques_montagne(temp, humidity, pressure)
+risque_gel, etp_val, point_rosee = analyser_risques_montagne(
+    temp, humidity, pressure
+)
 
 try:
-    timezone = zoneinfo.ZoneInfo("Europe/Paris")
+    tz_paris = zoneinfo.ZoneInfo("Europe/Paris")
 except Exception:
-    timezone = timezone(timedelta(hours=2))
+    tz_paris = timezone(timedelta(hours=2))
 
-current_timestamp = datetime.now(timezone)
+current_timestamp = datetime.now(tz_paris)
 current_time_str = current_timestamp.strftime("%H:%M:%S")
 
 df_hist = sauvegarder_mesure_gsheet(
@@ -557,16 +682,31 @@ if not df_hist.empty and "timestamp" in df_hist.columns:
     df_hist["timestamp"] = df_hist["timestamp"].apply(nettoyer_timestamp_robuste)
 
 delta_temp = (
-    round(float(df_hist.iloc[-1]["temperature"]) - float(df_hist.iloc[-2]["temperature"]), 1)
-    if len(df_hist) >= 2 else 0.0
+    round(
+        float(df_hist.iloc[-1]["temperature"])
+        - float(df_hist.iloc[-2]["temperature"]),
+        1,
+    )
+    if len(df_hist) >= 2
+    else 0.0
 )
 delta_hum = (
-    round(float(df_hist.iloc[-1]["humidite"]) - float(df_hist.iloc[-2]["humidite"]), 1)
-    if len(df_hist) >= 2 else 0.0
+    round(
+        float(df_hist.iloc[-1]["humidite"])
+        - float(df_hist.iloc[-2]["humidite"]),
+        1,
+    )
+    if len(df_hist) >= 2
+    else 0.0
 )
 delta_press = (
-    round(float(df_hist.iloc[-1]["pression"]) - float(df_hist.iloc[-2]["pression"]), 2)
-    if len(df_hist) >= 2 else 0.0
+    round(
+        float(df_hist.iloc[-1]["pression"])
+        - float(df_hist.iloc[-2]["pression"]),
+        2,
+    )
+    if len(df_hist) >= 2
+    else 0.0
 )
 
 # --- CORRECTION DES EXTRÊMES DU JOUR ---
@@ -583,9 +723,13 @@ if not df_hist.empty and "timestamp" in df_hist.columns:
     if df_today.empty:
         df_today = df_calc
 
-    df_today["temperature"] = pd.to_numeric(df_today["temperature"], errors="coerce")
+    df_today["temperature"] = pd.to_numeric(
+        df_today["temperature"], errors="coerce"
+    )
     df_today_clean = df_today.dropna(subset=["temperature"])
-    df_today_clean = df_today_clean[df_today_clean["temperature"].between(-30, 50)]
+    df_today_clean = df_today_clean[
+        df_today_clean["temperature"].between(-30, 50)
+    ]
 
     if not df_today_clean.empty:
         idx_max = df_today_clean["temperature"].idxmax()
@@ -597,8 +741,16 @@ if not df_hist.empty and "timestamp" in df_hist.columns:
         ts_max = df_today_clean.loc[idx_max, "timestamp"]
         ts_min = df_today_clean.loc[idx_min, "timestamp"]
 
-        max_temp_time = ts_max.strftime("%H:%M:%S") if pd.notna(ts_max) else df_today_clean.loc[idx_max, "heure"]
-        min_temp_time = ts_min.strftime("%H:%M:%S") if pd.notna(ts_min) else df_today_clean.loc[idx_min, "heure"]
+        max_temp_time = (
+            ts_max.strftime("%H:%M:%S")
+            if pd.notna(ts_max)
+            else df_today_clean.loc[idx_max, "heure"]
+        )
+        min_temp_time = (
+            ts_min.strftime("%H:%M:%S")
+            if pd.notna(ts_min)
+            else df_today_clean.loc[idx_min, "heure"]
+        )
 
     max_wind = pd.to_numeric(df_today["vent"], errors="coerce").max()
     max_gust = pd.to_numeric(df_today["rafale"], errors="coerce").max()
@@ -619,7 +771,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "📈 Historique & Tendances",
     "💡 Prévisions & Analyse",
     "📓 Journal de Bord & Climat",
-    "🌐 Radar Météo & Pluie (Windy)"
+    "🌐 Radar Météo & Pluie (Windy)",
 ])
 
 with tab1:
@@ -629,7 +781,11 @@ with tab1:
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Température", f"{temp} °C", delta=f"{delta_temp:+.1f} °C")
         c2.metric("Humidité", f"{humidity} %", delta=f"{delta_hum:+.1f} %")
-        c3.metric("Pression relative", f"{pressure} hPa", delta=f"{delta_press:+.2f} hPa")
+        c3.metric(
+            "Pression relative",
+            f"{pressure} hPa",
+            delta=f"{delta_press:+.2f} hPa",
+        )
         c4.metric("Pression absolue", f"{pressure_abs} hPa")
 
         st.markdown("---")
@@ -637,7 +793,9 @@ with tab1:
         c5.metric("Ressenti", f"{temp_ressentie} °C", help=mode_ressenti)
         c6.metric("Vent moyen", f"{wind_speed} km/h")
         c7.metric("Rafale", f"{wind_gust} km/h")
-        c8.metric("Direction", f"{degres_vers_cardinal(wind_dir)} ({int(wind_dir)}°)")
+        c8.metric(
+            "Direction", f"{degres_vers_cardinal(wind_dir)} ({int(wind_dir)}°)"
+        )
 
         st.markdown("---")
         c5_b, _ = st.columns(2)
@@ -658,18 +816,25 @@ with tab1:
         )
         e3.metric("Vent max", f"{max_wind} km/h")
         e4.metric("Rafale max", f"{max_gust} km/h")
-    st.caption(f"Synchro cloud : **{current_time_str}** | Lignes Google Sheet : **{len(df_hist)}**")
+    st.caption(
+        f"Synchro cloud : **{current_time_str}** | Lignes Google Sheet :"
+        f" **{len(df_hist)}**"
+    )
 
 with tab2:
     st.subheader("🧭 Rose des Vents Améliorée (Google Sheet)")
 
-    vent_analyse_texte, vent_icone = interpreter_vent_local(wind_dir, wind_speed)
+    vent_analyse_texte, vent_icone = interpreter_vent_local(
+        wind_dir, wind_speed
+    )
     st.info(f"**Analyse du flux actuel :** {vent_icone} {vent_analyse_texte}")
 
     if not df_hist.empty and "direction" in df_hist.columns:
         df_rose = df_hist.dropna(subset=["direction", "vent"]).copy()
         df_rose["vent"] = pd.to_numeric(df_rose["vent"], errors="coerce")
-        df_rose["direction"] = pd.to_numeric(df_rose["direction"], errors="coerce")
+        df_rose["direction"] = pd.to_numeric(
+            df_rose["direction"], errors="coerce"
+        )
         df_rose = df_rose.dropna(subset=["direction", "vent"])
 
         if not df_rose.empty:
@@ -686,27 +851,60 @@ with tab2:
 
                 smoothed_rad = np.arctan2(-u_s, -v_s)
                 df_rose["direction"] = (np.degrees(smoothed_rad) + 360) % 360
-                df_rose = df_rose.reset_index().dropna(subset=["direction", "vent"])
+                df_rose = df_rose.reset_index().dropna(
+                    subset=["direction", "vent"]
+                )
 
             calm_count = len(df_rose[df_rose["vent"] < 1])
             total_count = len(df_rose)
-            calm_percentage = (calm_count / total_count * 100) if total_count > 0 else 0
+            calm_percentage = (
+                (calm_count / total_count * 100) if total_count > 0 else 0
+            )
 
             bins_vitesse = [0, 5, 10, 15, 20, 30, 40, 50, 150]
-            labels_vitesse = ["< 5", "5-10", "10-15", "15-20", "20-30", "30-40", "40-50", "> 50"]
+            labels_vitesse = [
+                "< 5",
+                "5-10",
+                "10-15",
+                "15-20",
+                "20-30",
+                "30-40",
+                "40-50",
+                "> 50",
+            ]
             df_rose["vent_tranche"] = pd.cut(
-                df_rose["vent"], bins=bins_vitesse, labels=labels_vitesse, right=False
+                df_rose["vent"],
+                bins=bins_vitesse,
+                labels=labels_vitesse,
+                right=False,
             )
 
             bins_dir = [-11.25 + i * 22.5 for i in range(17)]
             labels_deg = [i * 22.5 for i in range(16)]
             noms_secteurs = [
-                "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-                "S", "SSO", "SO", "OSO", "O", "ONO", "NO", "NNO"
+                "N",
+                "NNE",
+                "NE",
+                "ENE",
+                "E",
+                "ESE",
+                "SE",
+                "SSE",
+                "S",
+                "SSO",
+                "SO",
+                "OSO",
+                "O",
+                "ONO",
+                "NO",
+                "NNO",
             ]
 
             df_rose["bin_deg"] = pd.cut(
-                df_rose["direction"] % 360, bins=bins_dir, labels=labels_deg, include_lowest=True
+                df_rose["direction"] % 360,
+                bins=bins_dir,
+                labels=labels_deg,
+                include_lowest=True,
             )
             df_rose["bin_deg"] = df_rose["bin_deg"].astype(float)
 
@@ -737,7 +935,10 @@ with tab2:
                 title=titre_rose,
                 polar=dict(
                     angularaxis=dict(
-                        tickvals=labels_deg, ticktext=noms_secteurs, direction="clockwise", rotation=90
+                        tickvals=labels_deg,
+                        ticktext=noms_secteurs,
+                        direction="clockwise",
+                        rotation=90,
                     ),
                     radialaxis=dict(showticklabels=True, ticks=""),
                 ),
@@ -758,15 +959,24 @@ with tab3:
 
     if not df_hist.empty and "pluie" in df_hist.columns:
         df_rain = df_hist.copy()
-        df_rain["pluie"] = pd.to_numeric(df_rain["pluie"], errors="coerce").fillna(0.0)
+        df_rain["pluie"] = pd.to_numeric(
+            df_rain["pluie"], errors="coerce"
+        ).fillna(0.0)
         df_rain["date_seule"] = df_rain["timestamp"].dt.date
-        df_journalier = df_rain.groupby("date_seule")["pluie"].max().reset_index()
+        df_journalier = (
+            df_rain.groupby("date_seule")["pluie"].max().reset_index()
+        )
 
         fig_rain = px.bar(
-            df_journalier, x="date_seule", y="pluie", title="Cumul journalier de précipitations (mm)"
+            df_journalier,
+            x="date_seule",
+            y="pluie",
+            title="Cumul journalier de précipitations (mm)",
         )
         fig_rain.update_layout(
-            height=300, margin=dict(l=10, r=10, t=40, b=10), template="plotly_white"
+            height=300,
+            margin=dict(l=10, r=10, t=40, b=10),
+            template="plotly_white",
         )
         st.plotly_chart(fig_rain, use_container_width=True)
     else:
@@ -786,7 +996,10 @@ with tab4:
             with open(img_path, "rb") as f:
                 fig_pano.add_layout_image(
                     dict(
-                        source=f"data:image/jpeg;base64,{base64.b64encode(f.read()).decode()}",
+                        source=(
+                            "data:image/jpeg;base64,"
+                            f"{base64.b64encode(f.read()).decode()}"
+                        ),
                         xref="x",
                         yref="y",
                         x=0,
@@ -805,7 +1018,6 @@ with tab4:
             annotation_text=f"☁️ Nuages ({altitude_mer} m)",
         )
 
-        # --- VERROUILLAGE TOTAL CONTRE LE DÉPLACEMENT/ZOOM/CLIC ---
         fig_pano.update_layout(
             xaxis=dict(visible=False, range=[-0.5, 9.5], fixedrange=True),
             yaxis=dict(range=[400, 3000], fixedrange=True),
@@ -813,25 +1025,34 @@ with tab4:
             margin=dict(l=10, r=10, t=40, b=10),
             template="plotly_white",
             dragmode=False,
-            hovermode=False
+            hovermode=False,
         )
 
-        # Configuration stricte empêchant toute interaction mobile/desktop
         st.plotly_chart(
             fig_pano,
             use_container_width=True,
-            config={'staticPlot': True, 'displayModeBar': False}
+            config={"staticPlot": True, "displayModeBar": False},
         )
 
 with tab5:
     st.subheader("📈 Historique & Tendances (Altair)")
     if not df_hist.empty:
         df_plot = df_hist.copy()
-        df_plot["timestamp"] = pd.to_datetime(df_plot["timestamp"], errors="coerce")
-        df_plot["temperature"] = pd.to_numeric(df_plot["temperature"], errors="coerce")
-        df_plot["ressenti"] = pd.to_numeric(df_plot["ressenti"], errors="coerce")
-        df_plot["humidite"] = pd.to_numeric(df_plot["humidite"], errors="coerce")
-        df_plot["pression"] = pd.to_numeric(df_plot["pression"], errors="coerce")
+        df_plot["timestamp"] = pd.to_datetime(
+            df_plot["timestamp"], errors="coerce"
+        )
+        df_plot["temperature"] = pd.to_numeric(
+            df_plot["temperature"], errors="coerce"
+        )
+        df_plot["ressenti"] = pd.to_numeric(
+            df_plot["ressenti"], errors="coerce"
+        )
+        df_plot["humidite"] = pd.to_numeric(
+            df_plot["humidite"], errors="coerce"
+        )
+        df_plot["pression"] = pd.to_numeric(
+            df_plot["pression"], errors="coerce"
+        )
 
         df_plot = df_plot.dropna(subset=["timestamp"]).sort_values("timestamp")
 
@@ -852,7 +1073,9 @@ with tab5:
         })
 
         tooltip_temp = [
-            alt.Tooltip("timestamp:T", title="Date/Heure", format="%d/%m/%Y %H:%M"),
+            alt.Tooltip(
+                "timestamp:T", title="Date/Heure", format="%d/%m/%Y %H:%M"
+            ),
             alt.Tooltip("Type:N", title="Mesure"),
             alt.Tooltip("Valeur:Q", title="Valeur (°C)", format=".1f"),
         ]
@@ -864,18 +1087,22 @@ with tab5:
                 x=alt.X(
                     "timestamp:T",
                     title="Heure",
-                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45)
+                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45),
                 ),
-                y=alt.Y("Valeur:Q", title="°C", scale=alt.Scale(domain=[y_min, y_max])),
+                y=alt.Y(
+                    "Valeur:Q",
+                    title="°C",
+                    scale=alt.Scale(domain=[y_min, y_max]),
+                ),
                 color=alt.Color(
                     "Type:N",
                     scale=alt.Scale(
                         domain=["Température (°C)", "Ressenti (°C)"],
-                        range=["#0284c7", "#38bdf8"]
+                        range=["#0284c7", "#38bdf8"],
                     ),
                     legend=alt.Legend(title=""),
                 ),
-                tooltip=tooltip_temp
+                tooltip=tooltip_temp,
             )
             .properties(title="Températures et Ressenti (°C)", height=280)
             .interactive()
@@ -888,19 +1115,27 @@ with tab5:
                 interpolate="monotone",
                 color="#0d9488",
                 opacity=0.25,
-                line=dict(color="#0d9488", width=2)
+                line=dict(color="#0d9488", width=2),
             )
             .encode(
                 x=alt.X(
                     "timestamp:T",
                     title="Heure",
-                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45)
+                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45),
                 ),
-                y=alt.Y("humidite:Q", title="%", scale=alt.Scale(domain=[0, 100])),
+                y=alt.Y(
+                    "humidite:Q", title="%", scale=alt.Scale(domain=[0, 100])
+                ),
                 tooltip=[
-                    alt.Tooltip("timestamp:T", title="Date/Heure", format="%d/%m/%Y %H:%M"),
-                    alt.Tooltip("humidite:Q", title="Humidité (%)", format=".1f")
-                ]
+                    alt.Tooltip(
+                        "timestamp:T",
+                        title="Date/Heure",
+                        format="%d/%m/%Y %H:%M",
+                    ),
+                    alt.Tooltip(
+                        "humidite:Q", title="Humidité (%)", format=".1f"
+                    ),
+                ],
             )
             .properties(title="Humidité relative (%)", height=240)
             .interactive()
@@ -913,87 +1148,105 @@ with tab5:
 
         chart_press = (
             alt.Chart(df_plot.dropna(subset=["pression"]))
-            .mark_line(interpolate="monotone", color="#f59e0b", strokeWidth=2)
+            .mark_line(interpolate="monotone", color="#8b5cf6")
             .encode(
                 x=alt.X(
                     "timestamp:T",
                     title="Heure",
-                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45)
+                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45),
                 ),
-                y=alt.Y("pression:Q", title="hPa", scale=alt.Scale(domain=[p_min, p_max], zero=False)),
+                y=alt.Y(
+                    "pression:Q",
+                    title="hPa",
+                    scale=alt.Scale(domain=[p_min, p_max]),
+                ),
                 tooltip=[
-                    alt.Tooltip("timestamp:T", title="Date/Heure", format="%d/%m/%Y %H:%M"),
-                    alt.Tooltip("pression:Q", title="Pression (hPa)", format=".1f")
-                ]
+                    alt.Tooltip(
+                        "timestamp:T",
+                        title="Date/Heure",
+                        format="%d/%m/%Y %H:%M",
+                    ),
+                    alt.Tooltip(
+                        "pression:Q", title="Pression (hPa)", format=".1f"
+                    ),
+                ],
             )
-            .properties(title="Pression atmosphérique relative (hPa)", height=240)
+            .properties(title="Pression atmosphérique (hPa)", height=240)
             .interactive()
         )
         st.altair_chart(chart_press, use_container_width=True)
+    else:
+        st.info("Aucun historique disponible pour générer les graphiques.")
 
 with tab6:
-    st.subheader("💡 Prévisions & Analyse locale")
+    st.subheader("💡 Prévisions & Analyse Barométrique")
 
     col_p1, col_p2 = st.columns(2)
     with col_p1:
-        with st.container(border=True):
-            st.markdown("### 🔍 Tendance Barométrique")
-            st.metric("Variation (3h)", f"{tendance_val:+.2f} hPa")
-            st.write(f"**Analyse :** {tendance_libelle}")
-            st.write(f"**Indice de confiance :** {indice_confiance}")
+        st.metric("Tendance barométrique (3h)", tendance_libelle)
+        st.caption(f"Indice de confiance : **{indice_confiance}**")
 
     with col_p2:
-        with st.container(border=True):
-            st.markdown("### 🌤️ Prévision Synthétique")
-            st.write(prevision_texte)
-            st.markdown("---")
-            st.write(f"**Point de rosée :** {point_rosee} °C")
-            st.write(f"**Risque gel :** {risque_gel}")
-            st.write(f"**ETP :** {etp_val} mm/j")
+        st.metric("Évapotranspiration (ETP estimée)", f"{etp_val} mm/jour")
+        st.caption(f"Point de rosée : **{point_rosee} °C**")
 
-    st.markdown("### 🌡️ Normales Climatiques (900m)")
-    mois_actuel = current_timestamp.month
-    normes = obtenir_normales_saison(mois_actuel)
-
-    with st.container(border=True):
-        nc1, nc2, nc3 = st.columns(3)
-        nc1.metric("T. Normale Attendue (Min)", f"{normes['t_min']} °C")
-        nc2.metric("T. Normale Attendue (Max)", f"{normes['t_max']} °C")
-        nc3.markdown(f"**Climatologie :** {normes['desc']}")
+    st.markdown("---")
+    st.markdown("### 🔮 Tendances locales")
+    st.info(f"**Analyse automatique :** {prevision_texte}")
+    st.warning(f"**Vigilance Montagne & Jardin :** {risque_gel}")
 
 with tab7:
-    st.subheader("📓 Journal de Bord & Climat")
+    st.subheader("📓 Journal de Bord & Climatologie")
+
+    mois_courant = current_timestamp.month
+    normale_saison = obtenir_normales_saison(mois_courant)
+
+    st.markdown(f"### 🌡️ Normales de saison — Mois {mois_courant}")
+    c_n1, c_n2, c_n3 = st.columns(3)
+    c_n1.metric("Tn Normale", f"{normale_saison['t_min']} °C")
+    c_n2.metric("Tx Normale", f"{normale_saison['t_max']} °C")
+    c_n3.write(f"**Description :** {normale_saison['desc']}")
+
+    st.markdown("---")
+    st.markdown("### 📝 Ajouter une observation locale")
+
+    with st.form("form_journal", clear_on_submit=True):
+        auteur = st.text_input("Auteur", value="Rémi")
+        obs_texte = st.text_area(
+            "Observation (ex: neige au col, floraison, gelée...)"
+        )
+        soumis = st.form_submit_button("Saisir dans le journal")
+
+        if soumis and obs_texte.strip():
+            sheet_j = connecter_feuille_journal()
+            if sheet_j:
+                date_str = current_timestamp.strftime("%Y-%m-%d %H:%M")
+                sheet_j.append_row([date_str, auteur, obs_texte])
+                st.success("Observation enregistrée dans Google Sheets !")
+            else:
+                st.error("Erreur de connexion au journal Google Sheets.")
+
+    st.markdown("---")
+    st.markdown("### 📖 Dernières notes du journal")
     sheet_j = connecter_feuille_journal()
     if sheet_j:
         try:
-            records = sheet_j.get_all_records()
-            if records:
-                st.dataframe(pd.DataFrame(records), use_container_width=True)
+            records_j = sheet_j.get_all_records()
+            if records_j:
+                df_j = pd.DataFrame(records_j)
+                st.dataframe(df_j.tail(10), use_container_width=True)
             else:
-                st.info("Aucune observation enregistrée pour l'instant.")
+                st.write("Aucune observation enregistrée pour le moment.")
         except Exception:
-            st.warning("Impossible de lire les observations.")
-
-        with st.form("form_journal", clear_on_submit=True):
-            auteur = st.text_input("Auteur", value="Rémy")
-            obs = st.text_area("Nouvelle observation")
-            submit = st.form_submit_button("Enregistrer l'observation")
-            if submit and obs:
-                sheet_j.append_row([current_timestamp.strftime("%Y-%m-%d %H:%M"), auteur, obs])
-                st.success("Observation ajoutée avec succès !")
-                st.rerun()
+            st.write("Impossible de charger les notes du journal.")
 
 with tab8:
-    st.subheader("🌐 Radar Météo & Précipitations en direct (Windy)")
-    st.caption("Radar pluie / neige interactif centré sur la Vallée Verte & Habère-Poche (46.26°N, 6.47°E).")
+    st.subheader("🌐 Radar Météo & Pluie en direct (Windy)")
 
-    windy_iframe_html = """
-    <iframe
-        width="100%"
-        height="480"
-        src="https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=mm&metricTemp=%C2%B0C&metricWind=km%2Fh&zoom=9&overlay=radar&product=radar&level=surface&lat=46.26&lon=6.47&detailLat=46.26&detailLon=6.47&marker=true"
-        frameborder="0"
-        style="border-radius:12px; border: 1px solid #e2e8f0;">
+    windy_html = """
+    <iframe width="100%" height="450"
+        src="https://embed.windy.com/embed2.html?lat=46.248&lon=6.472&detailLat=46.248&detailLon=6.472&width=100%25&height=450&zoom=10&level=surface&overlay=radar&product=radar&menu=&message=true&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1"
+        frameborder="0">
     </iframe>
     """
-    st.components.v1.html(windy_iframe_html, height=500)
+    st.components.v1.html(windy_html, height=460)
