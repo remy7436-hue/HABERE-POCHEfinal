@@ -1,4 +1,4 @@
-import base64
+script = """import base64
 from datetime import datetime, timedelta, timezone
 from math import ceil, floor
 import os
@@ -22,7 +22,7 @@ st.set_page_config(
 
 # 2. Application de styles CSS personnalisés (Optimisés pour Mobile)
 st.markdown(
-    """
+    \"\"\"
     <style>
     /* Fond général */
     .main {
@@ -66,7 +66,7 @@ st.markdown(
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     </style>
-""",
+\"\"\",
     unsafe_allow_html=True,
 )
 
@@ -95,7 +95,7 @@ def connecter_google_sheet():
                 key_val = base64.b64decode(key_val).decode("utf-8")
             except Exception:
                 pass
-            gcp_creds["private_key"] = key_val.replace("\\n", "\n")
+            gcp_creds["private_key"] = key_val.replace("\\\\n", "\\n")
 
     creds = Credentials.from_service_account_info(gcp_creds, scopes=scope)
     client = gspread.authorize(creds)
@@ -117,7 +117,7 @@ def connecter_feuille_journal():
                     key_val = base64.b64decode(key_val).decode("utf-8")
                 except Exception:
                     pass
-                gcp_creds["private_key"] = key_val.replace("\\n", "\n")
+                gcp_creds["private_key"] = key_val.replace("\\\\n", "\\n")
         creds = Credentials.from_service_account_info(gcp_creds, scopes=scope)
         client = gspread.authorize(creds)
         try:
@@ -136,7 +136,7 @@ def nettoyer_timestamp_robuste(valeur_brute):
     if pd.isna(valeur_brute):
         return pd.NaT
     s = str(valeur_brute).strip()
-    match = re.search(r"(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?)", s)
+    match = re.search(r"(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}(?::\\d{2})?)", s)
     if match:
         try:
             return pd.to_datetime(match.group(1))
@@ -655,13 +655,17 @@ if not df_hist.empty and "timestamp" in df_hist.columns:
     df_calc = df_hist.copy()
     df_calc["timestamp"] = pd.to_datetime(df_calc["timestamp"], errors="coerce")
 
-    date_aujourdhui = current_timestamp.date()
-    df_today = df_calc[df_calc["timestamp"].dt.date == date_aujourdhui].copy()
+    # Conversion en naïf (sans tz) pour des comparaisons robustes sans TypeError
+    current_ts_naive = current_timestamp.replace(tzinfo=None)
+    date_aujourdhui = current_ts_naive.date()
 
-    # Fallback : si aucune ou une seule ligne pour aujourd'hui, on consulte les 24 dernières heures
+    df_calc["timestamp_naive"] = df_calc["timestamp"].dt.tz_localize(None)
+    df_today = df_calc[df_calc["timestamp_naive"].dt.date == date_aujourdhui].copy()
+
+    # Fallback : si moins de 2 mesures aujourd'hui, on consulte les 24 dernières heures
     if len(df_today) < 2:
-        limite_24h = current_timestamp - pd.Timedelta(hours=24)
-        df_today = df_calc[df_calc["timestamp"] >= limite_24h].copy()
+        limite_24h = current_ts_naive - pd.Timedelta(hours=24)
+        df_today = df_calc[df_calc["timestamp_naive"] >= limite_24h].copy()
 
     if not df_today.empty:
         for col_name in ["temperature", "vent", "rafale"]:
@@ -970,44 +974,151 @@ with tab4:
         )
 
 with tab5:
-    st.subheader("📈 Historique & Tendances Barométriques")
+    st.subheader("📈 Historique & Tendances (Altair)")
     if not df_hist.empty:
-        # 1. Températures
-        fig_temp = px.line(
-            df_hist,
-            x="timestamp",
-            y=["temperature", "ressenti"],
-            title="Évolution des Températures (°C)",
-            labels={"value": "Température °C", "variable": "Légende"},
+        df_plot = df_hist.copy()
+        df_plot["timestamp"] = pd.to_datetime(
+            df_plot["timestamp"], errors="coerce"
         )
-        fig_temp.update_layout(height=280, template="plotly_white")
-        st.plotly_chart(fig_temp, use_container_width=True)
+        df_plot["temperature"] = pd.to_numeric(
+            df_plot["temperature"], errors="coerce"
+        )
+        df_plot["ressenti"] = pd.to_numeric(
+            df_plot["ressenti"], errors="coerce"
+        )
+        df_plot["humidite"] = pd.to_numeric(
+            df_plot["humidite"], errors="coerce"
+        )
+        df_plot["pression"] = pd.to_numeric(
+            df_plot["pression"], errors="coerce"
+        )
 
-        # 2. Pression
-        fig_press = px.line(
-            df_hist,
-            x="timestamp",
-            y="pression",
-            title="Évolution de la Pression Relative (hPa)",
-        )
-        fig_press.update_layout(height=280, template="plotly_white")
-        st.plotly_chart(fig_press, use_container_width=True)
+        df_plot = df_plot.dropna(subset=["timestamp"]).sort_values("timestamp")
 
-        # 3. Vent & Rafales
-        fig_wind = px.line(
-            df_hist,
-            x="timestamp",
-            y=["vent", "rafale"],
-            title="Évolution du Vent et Rafales (km/h)",
-            labels={"value": "Vitesse (km/h)", "variable": "Légende"},
+        valid_t = df_plot["temperature"].dropna()
+        y_min = floor(valid_t.min() - 2) if not valid_t.empty else 0
+        y_max = ceil(valid_t.max() + 2) if not valid_t.empty else 25
+
+        df_temp_melt = df_plot.melt(
+            id_vars=["timestamp"],
+            value_vars=["temperature", "ressenti"],
+            var_name="Type",
+            value_name="Valeur",
+        ).dropna(subset=["Valeur"])
+
+        df_temp_melt["Type"] = df_temp_melt["Type"].replace({
+            "temperature": "Température (°C)",
+            "ressenti": "Ressenti (°C)",
+        })
+
+        tooltip_temp = [
+            alt.Tooltip(
+                "timestamp:T", title="Date/Heure", format="%d/%m/%Y %H:%M"
+            ),
+            alt.Tooltip("Type:N", title="Mesure"),
+            alt.Tooltip("Valeur:Q", title="Valeur (°C)", format=".1f"),
+        ]
+
+        chart_temp = (
+            alt.Chart(df_temp_melt)
+            .mark_line(interpolate="monotone")
+            .encode(
+                x=alt.X(
+                    "timestamp:T",
+                    title="Heure",
+                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45),
+                ),
+                y=alt.Y(
+                    "Valeur:Q",
+                    title="°C",
+                    scale=alt.Scale(domain=[y_min, y_max]),
+                ),
+                color=alt.Color(
+                    "Type:N",
+                    scale=alt.Scale(
+                        domain=["Température (°C)", "Ressenti (°C)"],
+                        range=["#0284c7", "#38bdf8"],
+                    ),
+                    legend=alt.Legend(title=""),
+                ),
+                tooltip=tooltip_temp,
+            )
+            .properties(title="Températures et Ressenti (°C)", height=280)
+            .interactive()
         )
-        fig_wind.update_layout(height=280, template="plotly_white")
-        st.plotly_chart(fig_wind, use_container_width=True)
+        st.altair_chart(chart_temp, use_container_width=True)
+
+        chart_hum = (
+            alt.Chart(df_plot.dropna(subset=["humidite"]))
+            .mark_area(
+                interpolate="monotone",
+                color="#0d9488",
+                opacity=0.25,
+                line=dict(color="#0d9488", width=2),
+            )
+            .encode(
+                x=alt.X(
+                    "timestamp:T",
+                    title="Heure",
+                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45),
+                ),
+                y=alt.Y(
+                    "humidite:Q", title="%", scale=alt.Scale(domain=[0, 100])
+                ),
+                tooltip=[
+                    alt.Tooltip(
+                        "timestamp:T",
+                        title="Date/Heure",
+                        format="%d/%m/%Y %H:%M",
+                    ),
+                    alt.Tooltip(
+                        "humidite:Q", title="Humidité (%)", format=".1f"
+                    ),
+                ],
+            )
+            .properties(title="Humidité relative (%)", height=240)
+            .interactive()
+        )
+        st.altair_chart(chart_hum, use_container_width=True)
+
+        valid_p = df_plot["pression"].dropna()
+        p_min = floor(valid_p.min() - 2) if not valid_p.empty else 980
+        p_max = ceil(valid_p.max() + 2) if not valid_p.empty else 1040
+
+        chart_press = (
+            alt.Chart(df_plot.dropna(subset=["pression"]))
+            .mark_line(interpolate="monotone", color="#8b5cf6")
+            .encode(
+                x=alt.X(
+                    "timestamp:T",
+                    title="Heure",
+                    axis=alt.Axis(format="%d/%m %H:%M", labelAngle=-45),
+                ),
+                y=alt.Y(
+                    "pression:Q",
+                    title="hPa",
+                    scale=alt.Scale(domain=[p_min, p_max]),
+                ),
+                tooltip=[
+                    alt.Tooltip(
+                        "timestamp:T",
+                        title="Date/Heure",
+                        format="%d/%m/%Y %H:%M",
+                    ),
+                    alt.Tooltip(
+                        "pression:Q", title="Pression (hPa)", format=".1f"
+                    ),
+                ],
+            )
+            .properties(title="Pression atmosphérique (hPa)", height=240)
+            .interactive()
+        )
+        st.altair_chart(chart_press, use_container_width=True)
     else:
-        st.info("Aucun historique disponible pour le moment.")
+        st.info("Aucun historique disponible pour générer les graphiques.")
 
 with tab6:
-    st.subheader("💡 Prévisions & Analyse Locale")
+    st.subheader("💡 Prévisions & Analyse Barométrique")
 
     col_p1, col_p2 = st.columns(2)
     with col_p1:
@@ -1078,3 +1189,10 @@ with tab8:
     </iframe>
     """
     st.components.v1.html(windy_html, height=460)
+\"\"\"
+
+try:
+    compile(script, '<string>', 'exec')
+    print("COMPILATION OK")
+except Exception as e:
+    print("ERROR:", e)
