@@ -20,7 +20,7 @@ st.set_page_config(
     page_title="Météo Habère-Poche", page_icon="🏔️", layout="wide"
 )
 
-# 2. Application de styles CSS personnalisés (Optimisés pour Mobile & Tablette)
+# 2. Application de styles CSS personnalisés
 st.markdown(
     """
     <style>
@@ -708,6 +708,7 @@ if not df_hist.empty and "timestamp" in df_hist.columns:
             max_g = df_gust_clean["rafale"].max()
             max_gust = round(float(max_g), 1) if pd.notna(max_g) else 0.0
 
+# Initialisation et calcul des tendances barométriques
 tendance_val, tendance_libelle, prevision_texte, indice_confiance = (
     calculer_tendance_et_prevision_robuste(df_hist, pressure)
 )
@@ -882,7 +883,7 @@ with tab2:
                 height=320,
                 margin=dict(l=10, r=10, t=40, b=10),
             )
-            st.plotly_chart(fig_rose, use_container_width=True)
+            st.plotly_chart(fig_rose, width="stretch")
 
 with tab3:
     st.subheader("🌧️ Suivi de la Pluviométrie")
@@ -915,7 +916,7 @@ with tab3:
             margin=dict(l=10, r=10, t=40, b=10),
             template="plotly_white",
         )
-        st.plotly_chart(fig_rain, use_container_width=True)
+        st.plotly_chart(fig_rain, width="stretch")
     else:
         st.info("En attente de données de pluie...")
 
@@ -967,7 +968,7 @@ with tab4:
 
         st.plotly_chart(
             fig_pano,
-            use_container_width=True,
+            width="stretch",
             config={"staticPlot": True, "displayModeBar": False},
         )
 
@@ -1017,7 +1018,7 @@ with tab5:
             .properties(title="Évolution de la Température (°C)", height=220)
         )
 
-        st.altair_chart(chart_temp, use_container_width=True)
+        st.altair_chart(chart_temp, width="stretch")
 
         # Graphique Pression & Humidité
         chart_press = (
@@ -1043,7 +1044,7 @@ with tab5:
             .properties(title="Évolution de la Pression Barométrique (hPa)", height=220)
         )
 
-        st.altair_chart(chart_press, use_container_width=True)
+        st.altair_chart(chart_press, width="stretch")
     else:
         st.info("Aucune donnée historique disponible pour le moment.")
 
@@ -1055,7 +1056,7 @@ with tab6:
     with col_p1:
         with st.container(border=True):
             st.markdown("### 📊 Tendance Barométrique & Prévision")
-            st.write(f"**Tendance (3h) :** {libelle_tendance}")
+            st.write(f"**Tendance (3h) :** {tendance_libelle}")
             st.write(f"**Prévision estimée :** {prevision_texte}")
             st.write(f"**Indice de confiance :** {indice_confiance}")
 
@@ -1112,7 +1113,7 @@ with tab7:
                 df_j = pd.DataFrame(records_j)
                 st.dataframe(
                     df_j.iloc[::-1],
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
             else:
