@@ -376,7 +376,6 @@ def calculer_ressenti(temp, wind_speed_kmh, humidite):
 
 
 def calculate_dew_point(temp: float, humidity: float):
-    """Calcule le point de rosée (Magnus-Tetens)."""
     if temp is None or humidity is None or pd.isna(temp) or pd.isna(humidity):
         return None
     try:
@@ -389,7 +388,6 @@ def calculate_dew_point(temp: float, humidity: float):
 
 
 def get_fitzroy_forecast(delta_p_3h: float) -> dict:
-    """Détermine la prévision selon les règles barométriques de FitzRoy."""
     if delta_p_3h is None or pd.isna(delta_p_3h):
         return {
             "status": "Données insuffisantes",
@@ -432,7 +430,6 @@ def get_fitzroy_forecast(delta_p_3h: float) -> dict:
 def get_combined_rules_forecast(
     temp: float, humidity: float, pressure: float, delta_p_3h: float, wind_dir: float
 ) -> dict:
-    """Moteur de règles locales combinant Pression, RH, Vent et Température."""
     if any(
         v is None or pd.isna(v)
         for v in [temp, humidity, pressure, delta_p_3h, wind_dir]
@@ -1278,10 +1275,44 @@ with tab7:
     normale_saison = obtenir_normales_saison(mois_courant)
 
     st.markdown(f"### 🌡️ Normales de saison — Mois {mois_courant}")
-    c_n1, c_n2, c_n3 = st.columns(3)
-    c_n1.metric("Tn Normale", f"{normale_saison['t_min']} °C")
-    c_n2.metric("Tx Normale", f"{normale_saison['t_max']} °C")
-    c_n3.write(f"**Description :** {normale_saison['desc']}")
+    c_n1, c_n2 = st.columns(2)
+
+    # Calcul des dérives par rapport aux normales
+    delta_tn_str = None
+    delta_tx_str = None
+    if min_temp != "--":
+        diff_tn = round(float(min_temp) - normale_saison["t_min"], 1)
+        delta_tn_str = f"{diff_tn:+.1f} °C vs normale"
+
+    if max_temp != "--":
+        diff_tx = round(float(max_temp) - normale_saison["t_max"], 1)
+        delta_tx_str = f"{diff_tx:+.1f} °C vs normale"
+
+    c_n1.metric(
+        "Minimale (Tn)",
+        f"{min_temp} °C" if min_temp != "--" else "N/A",
+        delta=delta_tn_str,
+        help=f"Normale climatologique locale : {normale_saison['t_min']} °C"
+    )
+
+    c_n2.metric(
+        "Maximale (Tx)",
+        f"{max_temp} °C" if max_temp != "--" else "N/A",
+        delta=delta_tx_str,
+        help=f"Normale climatologique locale : {normale_saison['t_max']} °C"
+    )
+
+    # Bilan synthétique d'écart aux normales
+    if max_temp != "--" and min_temp != "--":
+        diff_moyenne = round(((float(max_temp) + float(min_temp)) / 2) - ((normale_saison["t_max"] + normale_saison["t_min"]) / 2), 1)
+        if diff_moyenne > 1.5:
+            st.warning(f"🔥 **Anomalie thermique chaude :** Aujourd'hui, la température moyenne observée à Habère-Poche est supérieure de **+{diff_moyenne} °C** aux normales locales du mois.")
+        elif diff_moyenne < -1.5:
+            st.info(f"❄️ **Anomalie thermique froide :** Aujourd'hui, la température moyenne observée à Habère-Poche est inférieure de **{diff_moyenne} °C** aux normales locales du mois.")
+        else:
+            st.success(f"✅ **Dans les normes :** Les températures relevées aujourd'hui sont parfaitement conformes aux normales de saison à Habère-Poche ({diff_moyenne:+.1f} °C d'écart).")
+
+    st.caption(f"**Contexte local :** {normale_saison['desc']}")
 
     st.markdown("---")
     st.markdown("### 📝 Ajouter une observation locale")
