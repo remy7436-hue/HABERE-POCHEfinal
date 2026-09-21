@@ -991,10 +991,13 @@ with tab5:
         df_plot["pression"] = pd.to_numeric(
             df_plot["pression"], errors="coerce"
         )
+        df_plot["direction"] = pd.to_numeric(
+            df_plot["direction"], errors="coerce"
+        )
 
         df_plot = df_plot.dropna(subset=["timestamp"]).sort_values("timestamp")
 
-        # Graphique Température & Ressenti
+        # 1. Graphique Température & Ressenti
         chart_temp = (
             alt.Chart(df_plot)
             .mark_line(color="#ef4444", strokeWidth=2)
@@ -1015,12 +1018,35 @@ with tab5:
                     alt.Tooltip("ressenti:Q", title="Ressenti (°C)", format=".1f"),
                 ],
             )
-            .properties(title="Évolution de la Température (°C)", height=220)
+            .properties(title="Évolution de la Température (°C)", height=200)
         )
-
         st.altair_chart(chart_temp, width="stretch")
 
-        # Graphique Pression & Humidité
+        # 2. Graphique Humidité (%)
+        chart_hum = (
+            alt.Chart(df_plot)
+            .mark_line(color="#06b6d4", strokeWidth=2)
+            .encode(
+                x=alt.X(
+                    "timestamp:T",
+                    title="Date / Heure",
+                    axis=alt.Axis(format="%d/%m %H:%M"),
+                ),
+                y=alt.Y(
+                    "humidite:Q",
+                    title="Humidité (%)",
+                    scale=alt.Scale(domain=[0, 100]),
+                ),
+                tooltip=[
+                    alt.Tooltip("timestamp:T", title="Heure", format="%d/%m %H:%M"),
+                    alt.Tooltip("humidite:Q", title="Humidité (%)", format=".0f"),
+                ],
+            )
+            .properties(title="Évolution de l'Humidité Relative (%)", height=200)
+        )
+        st.altair_chart(chart_hum, width="stretch")
+
+        # 3. Graphique Pression (hPa)
         chart_press = (
             alt.Chart(df_plot)
             .mark_line(color="#0284c7", strokeWidth=2)
@@ -1038,13 +1064,46 @@ with tab5:
                 tooltip=[
                     alt.Tooltip("timestamp:T", title="Heure", format="%d/%m %H:%M"),
                     alt.Tooltip("pression:Q", title="Pression (hPa)", format=".1f"),
-                    alt.Tooltip("humidite:Q", title="Humidité (%)", format=".0f"),
                 ],
             )
-            .properties(title="Évolution de la Pression Barométrique (hPa)", height=220)
+            .properties(title="Évolution de la Pression Barométrique (hPa)", height=200)
         )
-
         st.altair_chart(chart_press, width="stretch")
+
+        # 4. Graphique Direction du Vent (°)
+        df_plot["secteur"] = df_plot["direction"].apply(degres_vers_cardinal)
+
+        chart_wind_dir = (
+            alt.Chart(df_plot.dropna(subset=["direction"]))
+            .mark_point(color="#8b5cf6", size=45, opacity=0.75, filled=True)
+            .encode(
+                x=alt.X(
+                    "timestamp:T",
+                    title="Date / Heure",
+                    axis=alt.Axis(format="%d/%m %H:%M"),
+                ),
+                y=alt.Y(
+                    "direction:Q",
+                    title="Direction (°)",
+                    scale=alt.Scale(domain=[0, 360]),
+                    axis=alt.Axis(
+                        values=[0, 90, 180, 270, 360],
+                        format="d"
+                    ),
+                ),
+                tooltip=[
+                    alt.Tooltip("timestamp:T", title="Heure", format="%d/%m %H:%M"),
+                    alt.Tooltip("direction:Q", title="Cap (°)", format=".0f"),
+                    alt.Tooltip("secteur:N", title="Secteur"),
+                ],
+            )
+            .properties(
+                title="Évolution de la Direction du Vent (0°=N, 90°=E, 180°=S, 270°=O)",
+                height=220,
+            )
+        )
+        st.altair_chart(chart_wind_dir, width="stretch")
+
     else:
         st.info("Aucune donnée historique disponible pour le moment.")
 
