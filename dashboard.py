@@ -355,22 +355,29 @@ else:
         st.subheader("📡 Radar Prévisionnel & Cartes d'Animation (Windy)")
         st.markdown("""
         Ce widget officiel **Windy** intègre directement la simulation interactive des précipitations et des masses d'air sur plusieurs jours.
+        Vous pouvez visualiser l'arrivée des perturbations à grande échelle et zoomer sur la Haute-Savoie.
         """)
 
-        # Correction : st.iframe sans l'argument 'scrolling' non supporté
-        st.iframe(
-            "https://embed.windy.com/embed2.html?lat=46.250&lon=6.433&detailLat=46.250&detailLon=6.433&width=650&height=550&zoom=9&level=surface&overlay=rain&product=ecmwf&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1",
-            height=600
-        )
+        windy_html = """
+        <div style="width: 100%; height: 600px; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.2); background: #0e1117;">
+            <iframe src="https://embed.windy.com/embed2.html?lat=46.250&lon=6.433&detailLat=46.250&detailLon=6.433&width=650&height=450&zoom=9&level=surface&overlay=rain&product=ecmwf&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1"
+                    width="100%"
+                    height="100%"
+                    frameborder="0">
+            </iframe>
+        </div>
+        """
+        st.components.v1.html(windy_html, height=620)
 
         st.markdown("---")
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
             st.markdown("### 🌐 Mode Plein Écran")
+            st.markdown("Pour un confort d'analyse maximal sur grand écran avec toutes les couches météo :")
             st.link_button("Ouvrir Windy en plein écran", "https://www.windy.com/46.250/6.433?rain,46.000,6.433,9")
         with col_btn2:
             st.markdown("### 💡 Astuce de prévision locale")
-            st.info("Utilisez le curseur temporel en bas du widget Windy pour faire défiler les prévisions heure par heure.")
+            st.info("Utilisez le curseur temporel en bas du widget Windy pour faire défiler les prévisions heure par heure et voir précisément quand la pluie touchera Habère-Poche.")
 
     with tab_previ:
         st.subheader("🔮 Bulletin Prévisionnel & Analyse des Risques")
@@ -406,36 +413,17 @@ else:
                 labels = ['0-5', '5-10', '10-15', '15-20', '>20']
                 df_sorted['vitesse_tranche'] = pd.cut(df_sorted['wind_speed'], bins=bins, labels=labels, right=False)
                 df_sorted['dir_sector'] = (np.floor((df_sorted['wind_direction'] + 11.25) / 22.5) * 22.5) % 360
-
                 rose_df = df_sorted.groupby(['dir_sector', 'vitesse_tranche'], observed=False).size().reset_index(name='count')
-                rose_df = rose_df.dropna(subset=['count', 'dir_sector'])
 
-                fig_rose = go.Figure(
-                    data=[
-                        go.Barpolar(
-                            r=rose_df['count'],
-                            theta=rose_df['dir_sector'],
-                            marker=dict(colorscale="Plasma"),
-                        )
-                    ]
-                )
-                fig_rose.update_layout(
-                    template="plotly_dark",
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    margin=dict(l=10, r=10, t=10, b=10),
-                    polar=dict(
-                        bgcolor='rgba(0,0,0,0)',
-                        radialaxis=dict(showticklabels=False),
-                        angularaxis=dict(
-                            direction="clockwise",
-                            rotation=90,
-                            tickvals=[0, 45, 90, 135, 180, 225, 270, 315],
-                            ticktext=['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO']
-                        )
-                    )
-                )
-                st.plotly_chart(fig_rose, width="stretch")
+                fig = px.bar_polar(rose_df, r='count', theta='dir_sector', color='vitesse_tranche',
+                                   color_discrete_sequence=px.colors.sequential.Plasma_r, template="plotly_dark")
+                fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                                  margin=dict(l=10, r=10, t=10, b=10),
+                                  polar=dict(bgcolor='rgba(0,0,0,0)', radialaxis=dict(showticklabels=False),
+                                             angularaxis=dict(direction="clockwise", rotation=90,
+                                                              tickvals=[0, 45, 90, 135, 180, 225, 270, 315],
+                                                              ticktext=['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'])))
+                st.plotly_chart(fig, width="stretch")
 
     with tab_climat:
         st.subheader("🌱 Climatologie, Jardin & Astronomie")
