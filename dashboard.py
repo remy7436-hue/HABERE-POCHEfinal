@@ -357,10 +357,10 @@ else:
         Ce widget officiel **Windy** intègre directement la simulation interactive des précipitations et des masses d'air sur plusieurs jours.
         """)
 
+        # Correction : st.iframe sans l'argument 'scrolling' non supporté
         st.iframe(
             "https://embed.windy.com/embed2.html?lat=46.250&lon=6.433&detailLat=46.250&detailLon=6.433&width=650&height=550&zoom=9&level=surface&overlay=rain&product=ecmwf&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1",
-            height=600,
-            scrolling=False
+            height=600
         )
 
         st.markdown("---")
@@ -410,7 +410,6 @@ else:
                 rose_df = df_sorted.groupby(['dir_sector', 'vitesse_tranche'], observed=False).size().reset_index(name='count')
                 rose_df = rose_df.dropna(subset=['count', 'dir_sector'])
 
-                # Utilisation sécurisée de go.Barpolar pour éviter tout bug de template/pattern Plotly
                 fig_rose = go.Figure(
                     data=[
                         go.Barpolar(
