@@ -1014,174 +1014,163 @@ with tab4:
         img_path = "PXL_20260913_173725056.MP.jpg"
         if os.path.exists(img_path):
             with open(img_path, "rb") as f:
+                img_data = base64.b64encode(f.read()).decode("utf-8")
                 fig_pano.add_layout_image(
                     dict(
-                        source=(
-                            "data:image/jpeg;base64,"
-                            f"{base64.b64encode(f.read()).decode()}"
-                        ),
+                        source=f"data:image/jpeg;base64,{img_data}",
                         xref="x",
                         yref="y",
                         x=0,
-                        y=altitude_mer + 500,
-                        sizex=100,
-                        sizey=1000,
+                        y=2000,
+                        sizex=10,
+                        sizey=1100,
                         sizing="stretch",
-                        opacity=0.8,
+                        opacity=0.85,
                         layer="below",
                     )
                 )
 
-        fig_pano.add_trace(
-            go.Scatter(
-                x=[0, 100],
-                y=[altitude_mer, altitude_mer],
-                mode="lines",
-                name="Base des nuages",
-                line=dict(color="rgba(239, 68, 68, 0.8)", width=3, dash="dash"),
-            )
+        fig_pano.add_shape(
+            type="line",
+            x0=0,
+            y0=altitude_mer,
+            x1=10,
+            y1=altitude_mer,
+            line=dict(color="LightSkyBlue", width=3, dash="dashdot"),
+        )
+        fig_pano.add_annotation(
+            x=5,
+            y=altitude_mer,
+            text=f"Plancher Cloud Base: {altitude_mer} m",
+            showarrow=True,
+            arrowhead=1,
+            bgcolor="rgba(255, 255, 255, 0.8)",
         )
 
         fig_pano.update_layout(
-            title=f"Représentation de la couche nuageuse (~{altitude_mer} m)",
-            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            yaxis=dict(title="Altitude (m)", range=[800, max(2000, altitude_mer + 300)]),
-            height=350,
-            margin=dict(l=10, r=10, t=40, b=10),
+            xaxis=dict(range=[0, 10], visible=False),
+            yaxis=dict(range=[900, 2000], title="Altitude (m)"),
+            height=400,
+            margin=dict(l=20, r=20, t=30, b=20),
             template="plotly_white",
         )
         st.plotly_chart(fig_pano, use_container_width=True)
     else:
-        st.info("Données insuffisantes pour estimer la base des nuages.")
+        st.info("Calcul du plancher nuageux indisponible.")
 
 with tab5:
-    st.subheader("📈 Historique & Tendances Barométriques")
-    if not df_hist.empty:
-        fig_hist = go.Figure()
-        fig_hist.add_trace(
-            go.Scatter(
-                x=df_hist["timestamp"],
-                y=df_hist["temperature"],
-                name="Température (°C)",
-                line=dict(color="#ef4444", width=2),
-            )
-        )
-        fig_hist.add_trace(
-            go.Scatter(
-                x=df_hist["timestamp"],
-                y=df_hist["pression"],
-                name="Pression (hPa)",
-                yaxis="y2",
-                line=dict(color="#3b82f6", width=2),
-            )
-        )
+    st.subheader("📈 Historique & Tendances Récentes")
+    if not df_hist.empty and len(df_hist) >= 2:
+        df_plot = df_hist.copy()
 
-        fig_hist.update_layout(
-            title="Évolution de la Température et de la Pression",
-            xaxis=dict(title="Horodatage"),
-            yaxis=dict(title="Température (°C)", titlefont=dict(color="#ef4444")),
-            yaxis2=dict(
-                title="Pression (hPa)",
-                titlefont=dict(color="#3b82f6"),
-                overlaying="y",
-                side="right",
-            ),
-            height=350,
+        fig_temp = px.line(
+            df_plot,
+            x="timestamp",
+            y=["temperature", "ressenti"],
+            labels={"value": "°C", "timestamp": "Heure"},
+            title="Évolution de la Température & Ressenti",
+        )
+        fig_temp.update_layout(
+            height=300,
             margin=dict(l=10, r=10, t=40, b=10),
             template="plotly_white",
         )
-        st.plotly_chart(fig_hist, use_container_width=True)
+        st.plotly_chart(fig_temp, use_container_width=True)
+
+        fig_press = px.line(
+            df_plot,
+            x="timestamp",
+            y="pression",
+            labels={"pression": "hPa", "timestamp": "Heure"},
+            title="Tendance Barométrique (Pression Relative)",
+        )
+        fig_press.update_layout(
+            height=250,
+            margin=dict(l=10, r=10, t=40, b=10),
+            template="plotly_white",
+        )
+        st.plotly_chart(fig_press, use_container_width=True)
     else:
-        st.info("Aucun historique disponible dans la base.")
+        st.info(
+            "Historique en cours de constitution (nécessite au moins 2 mesures)."
+        )
 
 with tab6:
-    st.subheader("💡 Prévisions Locales & Analyse Météo")
+    st.subheader("💡 Prévisions & Analyse Locale Advanced")
 
-    fitzroy = get_fitzroy_forecast(tendance_val)
-    combined = get_combined_rules_forecast(
+    f_res = get_fitzroy_forecast(tendance_val)
+    r_res = get_combined_rules_forecast(
         temp, humidity, pressure, tendance_val, wind_dir
     )
 
     col_a, col_b = st.columns(2)
     with col_a:
         with st.container(border=True):
-            st.markdown(f"### Baromètre FitzRoy {fitzroy['icon']}")
-            st.markdown(f"**Tendance (3h) :** {tendance_libelle}")
-            st.markdown(f"**État :** {fitzroy['status']}")
-            st.caption(fitzroy["desc"])
+            st.markdown("### 📜 Règle de FitzRoy")
+            st.markdown(f"## {f_res['icon']} {f_res['status']}")
+            st.caption(f_res["desc"])
 
     with col_b:
         with st.container(border=True):
-            st.markdown("### Analyse combinée du terrain 🏔️")
-            if combined["level"] == "warning":
-                st.warning(combined["summary"])
-            elif combined["level"] == "success":
-                st.success(combined["summary"])
+            st.markdown("### 🎯 Analyse Combinée")
+            if r_res["level"] == "warning":
+                st.warning(r_res["summary"])
+            elif r_res["level"] == "success":
+                st.success(r_res["summary"])
             else:
-                st.info(combined["summary"])
-            st.caption(f"Prévision barométrique globale : {prevision_texte}")
+                st.info(r_res["summary"])
 
     st.markdown("---")
-    st.subheader("📊 Diagnostic des Risques Montagne")
-    r1, r2, r3 = st.columns(3)
-    r1.metric("Alerte Gel", risque_gel)
-    r2.metric("Point de rosée", f"{point_rosee} °C")
-    r3.metric("ETP Estimée", f"{etp_val} mm/jour")
+    st.markdown("### ⛰️ Risques & Paramètres de Montagne")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Risque Gel", risque_gel)
+    m2.metric("Point de Rosée", f"{point_rosee} °C")
+    m3.metric("ETP Estimée", f"{etp_val} mm/j")
 
 with tab7:
-    st.subheader("📓 Journal d'Observation & Climatologie Localisé")
+    st.subheader("📓 Journal de Bord & Climatologie")
 
-    month_now = current_timestamp.month
-    normale = obtenir_normales_saison(month_now)
-
-    with st.container(border=True):
-        st.markdown(f"### Normales de saison pour le mois ({month_now})")
-        c_n1, c_n2 = st.columns(2)
-        c_n1.metric("Tn Normale (Min)", f"{normale['t_min']} °C")
-        c_n2.metric("Tx Normale (Max)", f"{normale['t_max']} °C")
-        st.caption(f"**Climatologie :** {normale['desc']}")
+    normales = obtenir_normales_saison(current_timestamp.month)
+    st.markdown(
+        f"**Normales de saison ({current_timestamp.strftime('%B')}) :** "
+        f"Tn {normales['t_min']}°C | Tx {normales['t_max']}°C — *{normales['desc']}*"
+    )
 
     st.markdown("---")
-    st.markdown("### ✍️ Ajouter une note au journal de bord")
-    sheet_j = connecter_feuille_journal()
+    st.markdown("### ✍️ Ajouter une Observation")
 
+    sheet_j = connecter_feuille_journal()
     with st.form("form_journal", clear_on_submit=True):
         auteur = st.text_input("Auteur", value="Rémi")
-        obs = st.text_area("Observation météo / jardin / faune")
+        obs_text = st.text_area("Observation / Note météo")
         submitted = st.form_submit_button("Enregistrer l'observation")
 
-        if submitted and obs.strip():
+        if submitted and obs_text:
             if sheet_j:
                 try:
-                    horodatage_note = current_timestamp.strftime("%Y-%m-%d %H:%M")
-                    sheet_j.append_row([horodatage_note, auteur, obs])
-                    st.success("Note ajoutée avec succès au journal Google Sheets !")
+                    horodatage = current_timestamp.strftime("%Y-%m-%d %H:%M")
+                    sheet_j.append_row([horodatage, auteur, obs_text])
+                    st.success("Observation ajoutée au journal de bord !")
                 except Exception as e:
-                    st.error(f"Erreur lors de l'enregistrement : {e}")
+                    st.error(f"Erreur lors de la sauvegarde : {e}")
             else:
-                st.error("Feuille de journal introuvable.")
+                st.error("Impossible de se connecter à la feuille du journal.")
 
     if sheet_j:
         try:
-            records_j = sheet_j.get_all_records()
-            if records_j:
-                df_j = pd.DataFrame(records_j)
-                st.markdown("### 📋 Historique des notes")
-                st.dataframe(df_j.iloc[::-1], use_container_width=True)
+            entries = sheet_j.get_all_records()
+            if entries:
+                df_j = pd.DataFrame(entries)
+                st.markdown("### 📋 Historique des Observations")
+                st.dataframe(df_j, use_container_width=True)
         except Exception:
             pass
 
 with tab8:
-    st.subheader("🌐 Radar Météo & Précipitations (Windy - Habère-Poche)")
-    st.caption("Coordonnées de la station : **46.244°N, 6.472°E** (Vallée Verte)")
+    st.subheader("🌐 Radar Météo & Pluie en direct (Windy)")
+    st.caption("Localisation centrée sur Habère-Poche / Vallée Verte")
 
-    windy_url = (
-        "https://embed.windy.com/embed2.html?"
-        "lat=46.244&lon=6.472&detailLat=46.244&detailLon=6.472"
-        "&width=100%25&height=450&zoom=10&level=surface&overlay=radar"
-        "&product=radar&menu=&message=&marker=true&calendar=now"
-        "&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh"
-        "&metricTemp=%C2%B0C&radarRange=-1"
-    )
-
-    st.components.v1.iframe(windy_url, height=500, scrolling=False)
+    windy_html = """
+    <iframe width="100%" height="450" src="https://embed.windy.com/embed2.html?lat=46.246&lon=6.472&detailLat=46.246&detailLon=6.472&width=650&height=450&zoom=10&level=surface&overlay=radar&product=radar&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1" frameborder="0"></iframe>
+    """
+    st.components.v1.html(windy_html, height=470)
