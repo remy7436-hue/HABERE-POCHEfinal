@@ -734,10 +734,9 @@ delta_press = (
     if len(df_hist) >= 2
     else 0.0
 )
-
 # Extrêmes du jour
-max_temp, min_temp, max_temp_time, min_temp_time = "--", "--", "", ""
-max_wind, max_gust = 0.0, 0.0
+max_temp, min_temp, max_temp_time, min_temp_time = temp, temp, current_time_str, current_time_str
+max_wind, max_gust = wind_speed, wind_gust
 
 if not df_hist.empty and "timestamp" in df_hist.columns:
     df_calc = df_hist.copy()
@@ -747,49 +746,42 @@ if not df_hist.empty and "timestamp" in df_hist.columns:
     date_aujourdhui = current_timestamp.date()
     df_today = df_calc[df_calc["timestamp"].dt.date == date_aujourdhui].copy()
 
-    # Si aucune donnée pour aujourd'hui dans le sheet, on garde le relevé actuel
-    if df_today.empty:
-        max_temp, min_temp = temp, temp
-        max_temp_time, min_temp_time = current_time_str, current_time_str
-    else:
-        df_today["temperature"] = pd.to_numeric(
-            df_today["temperature"], errors="coerce"
-        )
+    if not df_today.empty:
+        df_today["temperature"] = pd.to_numeric(df_today["temperature"], errors="coerce")
         df_today_clean = df_today.dropna(subset=["temperature"])
-        df_today_clean = df_today_clean[
-            df_today_clean["temperature"].between(-30, 50)
-        ]
+        df_today_clean = df_today_clean[df_today_clean["temperature"].between(-30, 50)]
 
-        # Inclure aussi la valeur actuelle Ecowitt en mémoire pour comparer
         if not df_today_clean.empty:
-            idx_max = df_today_clean["temperature"].idxmax()
-            idx_min = df_today_clean["temperature"].idxmin()
+            # Récupération des min/max historiques du jour dans Google Sheets
+            val_max_sheet = float(df_today_clean["temperature"].max())
+            val_min_sheet = float(df_today_clean["temperature"].min())
 
-            val_max = float(df_today_clean.loc[idx_max, "temperature"])
-            val_min = float(df_today_clean.loc[idx_min, "temperature"])
+            # Comparaison dynamique avec la température actuelle API
+            real_max = max(val_max_sheet, temp)
+            real_min = min(val_min_sheet, temp)
 
-            # Comparer avec la température en direct si elle dépasse le sheet
-            if temp > val_max:
-                max_temp = temp
+            max_temp = round(real_max, 1)
+            min_temp = round(real_min, 1)
+
+            # Attribution des heures
+            if temp == real_max and temp != val_max_sheet:
                 max_temp_time = current_time_str
             else:
-                max_temp = round(val_max, 1)
-                ts_max = df_today_clean.loc[idx_max, "timestamp"]
-                max_temp_time = ts_max.strftime("%H:%M:%S") if pd.notna(ts_max) else df_today_clean.loc[idx_max, "heure"]
+                idx_m = df_today_clean["temperature"].idxmax()
+                ts_m = df_today_clean.loc[idx_m, "timestamp"]
+                max_temp_time = ts_m.strftime("%H:%M:%S") if pd.notna(ts_m) else str(df_today_clean.loc[idx_m, "heure"])
 
-            if temp < val_min:
-                min_temp = temp
+            if temp == real_min and temp != val_min_sheet:
                 min_temp_time = current_time_str
             else:
-                min_temp = round(val_min, 1)
-                ts_min = df_today_clean.loc[idx_min, "timestamp"]
-                min_temp_time = ts_min.strftime("%H:%M:%S") if pd.notna(ts_min) else df_today_clean.loc[idx_min, "heure"]
+                idx_n = df_today_clean["temperature"].idxmin()
+                ts_n = df_today_clean.loc[idx_n, "timestamp"]
+                min_temp_time = ts_n.strftime("%H:%M:%S") if pd.notna(ts_n) else str(df_today_clean.loc[idx_n, "heure"])
 
-        max_wind = pd.to_numeric(df_today["vent"], errors="coerce").max()
-        max_gust = pd.to_numeric(df_today["rafale"], errors="coerce").max()
-        max_wind = round(float(max_wind), 1) if pd.notna(max_wind) else 0.0
-        max_gust = round(float(max_gust), 1) if pd.notna(max_gust) else 0.0
-
+        max_w = pd.to_numeric(df_today["vent"], errors="coerce").max()
+        max_g = pd.to_numeric(df_today["rafale"], errors="coerce").max()
+        max_wind = round(max(float(max_w) if pd.notna(max_w) else 0.0, wind_speed), 1)
+        max_gust = round(max(float(max_g) if pd.notna(max_g) else 0.0, wind_gust), 1)
 
 # 7. Structure des 8 onglets
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
