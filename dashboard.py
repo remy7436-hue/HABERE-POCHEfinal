@@ -743,49 +743,52 @@ if not df_hist.empty and "timestamp" in df_hist.columns:
     df_calc = df_hist.copy()
     df_calc["timestamp"] = pd.to_datetime(df_calc["timestamp"], errors="coerce")
 
+    # Filtrer strictement sur la date du jour
     date_aujourdhui = current_timestamp.date()
     df_today = df_calc[df_calc["timestamp"].dt.date == date_aujourdhui].copy()
 
+    # Si aucune donnée pour aujourd'hui dans le sheet, on garde le relevé actuel
     if df_today.empty:
-        df_today = df_calc
-
-    df_today["temperature"] = pd.to_numeric(
-        df_today["temperature"], errors="coerce"
-    )
-    df_today_clean = df_today.dropna(subset=["temperature"])
-    df_today_clean = df_today_clean[
-        df_today_clean["temperature"].between(-30, 50)
-    ]
-
-    if not df_today_clean.empty:
-        idx_max = df_today_clean["temperature"].idxmax()
-        idx_min = df_today_clean["temperature"].idxmin()
-
-        max_temp = round(float(df_today_clean.loc[idx_max, "temperature"]), 1)
-        min_temp = round(float(df_today_clean.loc[idx_min, "temperature"]), 1)
-
-        ts_max = df_today_clean.loc[idx_max, "timestamp"]
-        ts_min = df_today_clean.loc[idx_min, "timestamp"]
-
-        max_temp_time = (
-            ts_max.strftime("%H:%M:%S")
-            if pd.notna(ts_max)
-            else df_today_clean.loc[idx_max, "heure"]
+        max_temp, min_temp = temp, temp
+        max_temp_time, min_temp_time = current_time_str, current_time_str
+    else:
+        df_today["temperature"] = pd.to_numeric(
+            df_today["temperature"], errors="coerce"
         )
-        min_temp_time = (
-            ts_min.strftime("%H:%M:%S")
-            if pd.notna(ts_min)
-            else df_today_clean.loc[idx_min, "heure"]
-        )
+        df_today_clean = df_today.dropna(subset=["temperature"])
+        df_today_clean = df_today_clean[
+            df_today_clean["temperature"].between(-30, 50)
+        ]
 
-    max_wind = pd.to_numeric(df_today["vent"], errors="coerce").max()
-    max_gust = pd.to_numeric(df_today["rafale"], errors="coerce").max()
-    max_wind = round(float(max_wind), 1) if pd.notna(max_wind) else 0.0
-    max_gust = round(float(max_gust), 1) if pd.notna(max_gust) else 0.0
+        # Inclure aussi la valeur actuelle Ecowitt en mémoire pour comparer
+        if not df_today_clean.empty:
+            idx_max = df_today_clean["temperature"].idxmax()
+            idx_min = df_today_clean["temperature"].idxmin()
 
-tendance_val, tendance_libelle, prevision_texte, indice_confiance = (
-    calculer_tendance_et_prevision_robuste(df_hist, pressure)
-)
+            val_max = float(df_today_clean.loc[idx_max, "temperature"])
+            val_min = float(df_today_clean.loc[idx_min, "temperature"])
+
+            # Comparer avec la température en direct si elle dépasse le sheet
+            if temp > val_max:
+                max_temp = temp
+                max_temp_time = current_time_str
+            else:
+                max_temp = round(val_max, 1)
+                ts_max = df_today_clean.loc[idx_max, "timestamp"]
+                max_temp_time = ts_max.strftime("%H:%M:%S") if pd.notna(ts_max) else df_today_clean.loc[idx_max, "heure"]
+
+            if temp < val_min:
+                min_temp = temp
+                min_temp_time = current_time_str
+            else:
+                min_temp = round(val_min, 1)
+                ts_min = df_today_clean.loc[idx_min, "timestamp"]
+                min_temp_time = ts_min.strftime("%H:%M:%S") if pd.notna(ts_min) else df_today_clean.loc[idx_min, "heure"]
+
+        max_wind = pd.to_numeric(df_today["vent"], errors="coerce").max()
+        max_gust = pd.to_numeric(df_today["rafale"], errors="coerce").max()
+        max_wind = round(float(max_wind), 1) if pd.notna(max_wind) else 0.0
+        max_gust = round(float(max_gust), 1) if pd.notna(max_gust) else 0.0
 
 
 # 7. Structure des 8 onglets
