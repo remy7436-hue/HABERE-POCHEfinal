@@ -734,54 +734,57 @@ delta_press = (
     if len(df_hist) >= 2
     else 0.0
 )
-# Extrêmes du jour
-max_temp, min_temp, max_temp_time, min_temp_time = temp, temp, current_time_str, current_time_str
-max_wind, max_gust = wind_speed, wind_gust
+
+max_temp, min_temp, max_temp_time, min_temp_time = "--", "--", "", ""
+max_wind, max_gust = 0.0, 0.0
 
 if not df_hist.empty and "timestamp" in df_hist.columns:
     df_calc = df_hist.copy()
     df_calc["timestamp"] = pd.to_datetime(df_calc["timestamp"], errors="coerce")
 
-    # Filtrer strictement sur la date du jour
     date_aujourdhui = current_timestamp.date()
     df_today = df_calc[df_calc["timestamp"].dt.date == date_aujourdhui].copy()
 
-    if not df_today.empty:
-        df_today["temperature"] = pd.to_numeric(df_today["temperature"], errors="coerce")
+    if df_today.empty:
+        max_temp, min_temp = temp, temp
+        max_temp_time, min_temp_time = current_time_str, current_time_str
+    else:
+        df_today["temperature"] = pd.to_numeric(
+            df_today["temperature"], errors="coerce"
+        )
         df_today_clean = df_today.dropna(subset=["temperature"])
-        df_today_clean = df_today_clean[df_today_clean["temperature"].between(-30, 50)]
+        df_today_clean = df_today_clean[
+            df_today_clean["temperature"].between(-30, 50)
+        ]
 
         if not df_today_clean.empty:
-            # Récupération des min/max historiques du jour dans Google Sheets
-            val_max_sheet = float(df_today_clean["temperature"].max())
-            val_min_sheet = float(df_today_clean["temperature"].min())
+            idx_max = df_today_clean["temperature"].idxmax()
+            idx_min = df_today_clean["temperature"].idxmin()
 
-            # Comparaison dynamique avec la température actuelle API
-            real_max = max(val_max_sheet, temp)
-            real_min = min(val_min_sheet, temp)
+            val_max = float(df_today_clean.loc[idx_max, "temperature"])
+            val_min = float(df_today_clean.loc[idx_min, "temperature"])
 
-            max_temp = round(real_max, 1)
-            min_temp = round(real_min, 1)
-
-            # Attribution des heures
-            if temp == real_max and temp != val_max_sheet:
+            if temp > val_max:
+                max_temp = temp
                 max_temp_time = current_time_str
             else:
-                idx_m = df_today_clean["temperature"].idxmax()
-                ts_m = df_today_clean.loc[idx_m, "timestamp"]
-                max_temp_time = ts_m.strftime("%H:%M:%S") if pd.notna(ts_m) else str(df_today_clean.loc[idx_m, "heure"])
+                max_temp = round(val_max, 1)
+                ts_max = df_today_clean.loc[idx_max, "timestamp"]
+                max_temp_time = ts_max.strftime("%H:%M:%S") if pd.notna(ts_max) else df_today_clean.loc[idx_max, "heure"]
 
-            if temp == real_min and temp != val_min_sheet:
+            if temp < val_min:
+                min_temp = temp
                 min_temp_time = current_time_str
             else:
-                idx_n = df_today_clean["temperature"].idxmin()
-                ts_n = df_today_clean.loc[idx_n, "timestamp"]
-                min_temp_time = ts_n.strftime("%H:%M:%S") if pd.notna(ts_n) else str(df_today_clean.loc[idx_n, "heure"])
+                min_temp = round(val_min, 1)
+                ts_min = df_today_clean.loc[idx_min, "timestamp"]
+                min_temp_time = ts_min.strftime("%H:%M:%S") if pd.notna(ts_min) else df_today_clean.loc[idx_min, "heure"]
 
-        max_w = pd.to_numeric(df_today["vent"], errors="coerce").max()
-        max_g = pd.to_numeric(df_today["rafale"], errors="coerce").max()
-        max_wind = round(max(float(max_w) if pd.notna(max_w) else 0.0, wind_speed), 1)
-        max_gust = round(max(float(max_g) if pd.notna(max_g) else 0.0, wind_gust), 1)
+        max_wind = pd.to_numeric(df_today["vent"], errors="coerce").max()
+        max_gust = pd.to_numeric(df_today["rafale"], errors="coerce").max()
+        max_wind = round(float(max_wind), 1) if pd.notna(max_wind) else 0.0
+        max_gust = round(float(max_gust), 1) if pd.notna(max_gust) else 0.0
+
 
 # 7. Structure des 8 onglets
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
@@ -988,367 +991,171 @@ with tab4:
         c1, c2, c3 = st.columns(3)
         c1.metric("Altitude village", "900 m")
         c2.metric("Base des nuages / sol", f"+{base_sol} m")
-        c3.metric("Altitude absolue", f"{altitude_mer} m")
+        c3.metric("Altitude mer estimée", f"{altitude_mer} m")
 
-        fig_pano = go.Figure()
-        img_path = "PXL_20260913_173725056.MP.jpg"
-        if os.path.exists(img_path):
-            with open(img_path, "rb") as f:
-                fig_pano.add_layout_image(
-                    dict(
-                        source=(
-                            "data:image/jpeg;base64,"
-                            f"{base64.b64encode(f.read()).decode()}"
-                        ),
-                        xref="x",
-                        yref="y",
-                        x=0,
-                        y=3000,
-                        sizex=10,
-                        sizey=2600,
-                        sizing="stretch",
-                        opacity=0.85,
-                        layer="below",
-                    )
-                )
-        fig_pano.add_hline(
-            y=altitude_mer,
-            line_dash="dash",
-            line_color="red",
-            annotation_text=f"☁️ Nuages ({altitude_mer} m)",
+        st.info(
+            f"💡 La base des nuages est estimée à **{base_sol} m** au-dessus de"
+            f" Habère-Poche, soit environ **{altitude_mer} m** d'altitude"
+            " absolue, d'après l'écart entre la température et le point de"
+            " rosée."
         )
-
-        fig_pano.update_layout(
-            xaxis=dict(visible=False, range=[-0.5, 9.5], fixedrange=True),
-            yaxis=dict(range=[400, 3000], fixedrange=True),
-            height=320,
-            margin=dict(l=10, r=10, t=40, b=10),
-            template="plotly_white",
-            dragmode=False,
-            hovermode=False,
-        )
-
-        st.plotly_chart(
-            fig_pano,
-            use_container_width=True,
-            config={"staticPlot": True, "displayModeBar": False},
+    else:
+        st.warning(
+            "Calcul du plancher nuageux indisponible (données manquantes)."
         )
 
 with tab5:
-    st.subheader("📈 Historique & Tendances (Altair)")
+    st.subheader("📈 Historique & Tendances de la Station")
+
     if not df_hist.empty:
-        df_plot = df_hist.copy()
-        df_plot["timestamp"] = pd.to_datetime(
-            df_plot["timestamp"], errors="coerce"
-        )
-        df_plot["temperature"] = pd.to_numeric(
-            df_plot["temperature"], errors="coerce"
-        )
-        df_plot["ressenti"] = pd.to_numeric(
-            df_plot["ressenti"], errors="coerce"
-        )
-        df_plot["humidite"] = pd.to_numeric(
-            df_plot["humidite"], errors="coerce"
-        )
-        df_plot["pression"] = pd.to_numeric(
-            df_plot["pression"], errors="coerce"
-        )
-        df_plot["direction"] = pd.to_numeric(
-            df_plot["direction"], errors="coerce"
-        )
+        tab_t, tab_p, tab_h, tab_v = st.tabs([
+            "Température (°C)",
+            "Pression (hPa)",
+            "Humidité & Rosée (%)",
+            "Vent (km/h)",
+        ])
 
-        df_plot = df_plot.dropna(subset=["timestamp"]).sort_values("timestamp")
-
-        # 1. Graphique Température & Ressenti
-        chart_temp = (
-            alt.Chart(df_plot)
-            .mark_line(color="#ef4444", strokeWidth=2)
-            .encode(
-                x=alt.X(
-                    "timestamp:T",
-                    title="Date / Heure",
-                    axis=alt.Axis(format="%d/%m %H:%M"),
-                ),
-                y=alt.Y(
-                    "temperature:Q",
-                    title="Température (°C)",
-                    scale=alt.Scale(zero=False),
-                ),
-                tooltip=[
-                    alt.Tooltip("timestamp:T", title="Heure", format="%d/%m %H:%M"),
-                    alt.Tooltip("temperature:Q", title="Température (°C)", format=".1f"),
-                    alt.Tooltip("ressenti:Q", title="Ressenti (°C)", format=".1f"),
-                ],
+        with tab_t:
+            fig_t = px.line(
+                df_hist,
+                x="timestamp",
+                y="temperature",
+                title="Évolution de la température",
             )
-            .properties(title="Évolution de la Température (°C)", height=200)
-        )
-        st.altair_chart(chart_temp, use_container_width=True)
-
-        # 2. Graphique Humidité (%)
-        chart_hum = (
-            alt.Chart(df_plot)
-            .mark_line(color="#06b6d4", strokeWidth=2)
-            .encode(
-                x=alt.X(
-                    "timestamp:T",
-                    title="Date / Heure",
-                    axis=alt.Axis(format="%d/%m %H:%M"),
-                ),
-                y=alt.Y(
-                    "humidite:Q",
-                    title="Humidité (%)",
-                    scale=alt.Scale(domain=[0, 100]),
-                ),
-                tooltip=[
-                    alt.Tooltip("timestamp:T", title="Heure", format="%d/%m %H:%M"),
-                    alt.Tooltip("humidite:Q", title="Humidité (%)", format=".0f"),
-                ],
+            fig_t.update_layout(
+                height=350, margin=dict(l=10, r=10, t=40, b=10)
             )
-            .properties(title="Évolution de l'Humidité Relative (%)", height=200)
-        )
-        st.altair_chart(chart_hum, use_container_width=True)
+            st.plotly_chart(fig_t, use_container_width=True)
 
-        # 3. Graphique Pression (hPa)
-        chart_press = (
-            alt.Chart(df_plot)
-            .mark_line(color="#0284c7", strokeWidth=2)
-            .encode(
-                x=alt.X(
-                    "timestamp:T",
-                    title="Date / Heure",
-                    axis=alt.Axis(format="%d/%m %H:%M"),
-                ),
-                y=alt.Y(
-                    "pression:Q",
-                    title="Pression (hPa)",
-                    scale=alt.Scale(zero=False),
-                ),
-                tooltip=[
-                    alt.Tooltip("timestamp:T", title="Heure", format="%d/%m %H:%M"),
-                    alt.Tooltip("pression:Q", title="Pression (hPa)", format=".1f"),
-                ],
+        with tab_p:
+            fig_p = px.line(
+                df_hist,
+                x="timestamp",
+                y="pression",
+                title="Évolution de la pression relative",
             )
-            .properties(title="Évolution de la Pression Barométrique (hPa)", height=200)
-        )
-        st.altair_chart(chart_press, use_container_width=True)
+            fig_p.update_layout(
+                height=350, margin=dict(l=10, r=10, t=40, b=10)
+            )
+            st.plotly_chart(fig_p, use_container_width=True)
 
-        # 4. Graphique Direction du Vent (°)
-        df_plot["secteur"] = df_plot["direction"].apply(degres_vers_cardinal)
+        with tab_h:
+            fig_h = px.line(
+                df_hist,
+                x="timestamp",
+                y="humidite",
+                title="Évolution de l'humidité relative",
+            )
+            fig_h.update_layout(
+                height=350, margin=dict(l=10, r=10, t=40, b=10)
+            )
+            st.plotly_chart(fig_h, use_container_width=True)
 
-        chart_wind_dir = (
-            alt.Chart(df_plot.dropna(subset=["direction"]))
-            .mark_point(color="#8b5cf6", size=45, opacity=0.75, filled=True)
-            .encode(
-                x=alt.X(
-                    "timestamp:T",
-                    title="Date / Heure",
-                    axis=alt.Axis(format="%d/%m %H:%M"),
-                ),
-                y=alt.Y(
-                    "direction:Q",
-                    title="Direction (°)",
-                    scale=alt.Scale(domain=[0, 360]),
-                    axis=alt.Axis(values=[0, 90, 180, 270, 360], format="d"),
-                ),
-                tooltip=[
-                    alt.Tooltip("timestamp:T", title="Heure", format="%d/%m %H:%M"),
-                    alt.Tooltip("direction:Q", title="Cap (°)", format=".0f"),
-                    alt.Tooltip("secteur:N", title="Secteur"),
-                ],
+        with tab_v:
+            fig_v = px.line(
+                df_hist,
+                x="timestamp",
+                y=["vent", "rafale"],
+                title="Vitesse du vent et rafales",
             )
-            .properties(
-                title="Évolution de la Direction du Vent (0°=N, 90°=E, 180°=S, 270°=O)",
-                height=220,
+            fig_v.update_layout(
+                height=350, margin=dict(l=10, r=10, t=40, b=10)
             )
-        )
-        st.altair_chart(chart_wind_dir, use_container_width=True)
+            st.plotly_chart(fig_v, use_container_width=True)
     else:
-        st.info("Aucun historique disponible pour générer les graphiques.")
+        st.info("Aucun historique disponible pour le moment.")
 
 with tab6:
-    st.subheader("💡 Prévisions & Analyse Barométrique Avancée")
+    st.subheader("💡 Prévisions & Analyse Locale (Vallée Verte)")
 
-    if not df_hist.empty and len(df_hist) >= 2:
-        df_f = df_hist.copy()
-        df_f["timestamp"] = pd.to_datetime(df_f["timestamp"], errors="coerce")
-        df_f = df_f.dropna(subset=["timestamp"]).sort_values("timestamp")
+    tendance_3h, lib_tend, prev_texte, conf_texte = (
+        calculer_tendance_et_prevision_robuste(df_hist, pressure)
+    )
+    fitzroy = get_fitzroy_forecast(tendance_3h)
+    combined = get_combined_rules_forecast(
+        temp, humidity, pressure, tendance_3h, wind_dir
+    )
 
-        last_row = df_f.iloc[-1]
-        t_curr = float(last_row["temperature"])
-        rh_curr = float(last_row["humidite"])
-        p_curr = float(last_row["pression"])
-        dir_curr = float(last_row["direction"])
-        now_ts = last_row["timestamp"]
+    c_prev1, c_prev2 = st.columns(2)
 
-        # Variation de pression sur 3 heures
-        target_ts = now_ts - pd.Timedelta(hours=3)
-        past_rows = df_f[df_f["timestamp"] <= target_ts]
-        p_past = float(past_rows.iloc[-1]["pression"]) if not past_rows.empty else float(df_f.iloc[0]["pression"])
-        delta_p_3h = round(p_curr - p_past, 2)
+    with c_prev1:
+        with st.container(border=True):
+            st.markdown("### 📊 Analyse Barométrique (3h)")
+            st.metric("Tendance 3h", f"{tendance_3h:+0.1f} hPa")
+            st.write(f"**État :** {lib_tend}")
+            st.write(f"**Indice de confiance :** {conf_texte}")
 
-        dew_p = calculate_dew_point(t_curr, rh_curr)
-        fitzroy = get_fitzroy_forecast(delta_p_3h)
-        combo = get_combined_rules_forecast(t_curr, rh_curr, p_curr, delta_p_3h, dir_curr)
+        with st.container(border=True):
+            st.markdown("### 🏔️ Risques Montagne & Sol")
+            st.write(f"**Point de rosée :** {point_rosee} °C")
+            st.write(f"**Évapotranspiration (ETP) :** {etp_val} mm/j")
+            st.markdown(f"**Statut gel :** {risque_gel}")
 
-        col_p1, col_p2, col_p3, col_p4 = st.columns(4)
-        with col_p1:
-            st.metric("Pression & Tendance (3h)", f"{p_curr:.1f} hPa", delta=f"{delta_p_3h:+.1f} hPa")
-        with col_p2:
-            st.metric(
-                "Point de Rosée",
-                f"{dew_p:.1f} °C" if dew_p is not None else "N/A",
-                delta=f"Écart T°: {t_curr - dew_p:.1f} °C" if dew_p is not None else None,
-                delta_color="off"
-            )
-        with col_p3:
-            st.metric("Règles FitzRoy", f"{fitzroy['icon']} {fitzroy['status']}")
-        with col_p4:
-            st.metric("Évapotranspiration (ETP)", f"{etp_val} mm/j")
+    with c_prev2:
+        with st.container(border=True):
+            st.markdown("### ⛵ Règle de FitzRoy")
+            st.markdown(f"**{fitzroy['icon']} {fitzroy['status']}**")
+            st.caption(fitzroy["desc"])
 
-        st.markdown("---")
-        st.markdown("### 🔮 Analyse & Alertes Locales")
+        with st.container(border=True):
+            st.markdown("### 🎯 Synthèse Avancée")
+            st.info(combined["summary"])
+            st.success(prev_texte)
 
-        if combo["level"] == "warning":
-            st.warning(f"💡 **Synthèse météo :** {combo['summary']}")
-        elif combo["level"] == "success":
-            st.success(f"💡 **Synthèse météo :** {combo['summary']}")
-        else:
-            st.info(f"💡 **Synthèse météo :** {combo['summary']}")
-
-        st.warning(f"**Vigilance Gel / Montagne :** {risque_gel}")
-
-        st.markdown("---")
-        # Graphique de convergence Température vs Point de Rosée
-        df_f["dew_point"] = df_f.apply(
-            lambda r: calculate_dew_point(r["temperature"], r["humidite"]), axis=1
-        )
-        df_melted = df_f.melt(
-            id_vars=["timestamp"],
-            value_vars=["temperature", "dew_point"],
-            var_name="Mesure",
-            value_name="Valeur"
-        ).dropna(subset=["Valeur"])
-
-        df_melted["Mesure"] = df_melted["Mesure"].replace({
-            "temperature": "Température (°C)",
-            "dew_point": "Point de Rosée (°C)"
-        })
-
-        chart_dp = (
-            alt.Chart(df_melted)
-            .mark_line(strokeWidth=2)
-            .encode(
-                x=alt.X("timestamp:T", title="Heure", axis=alt.Axis(format="%d/%m %H:%M")),
-                y=alt.Y("Valeur:Q", title="°C", scale=alt.Scale(zero=False)),
-                color=alt.Color(
-                    "Mesure:N",
-                    scale=alt.Scale(
-                        domain=["Température (°C)", "Point de Rosée (°C)"],
-                        range=["#ef4444", "#06b6d4"]
-                    )
-                ),
-                tooltip=[
-                    alt.Tooltip("timestamp:T", title="Heure", format="%d/%m %H:%M"),
-                    alt.Tooltip("Mesure:N"),
-                    alt.Tooltip("Valeur:Q", format=".1f")
-                ]
-            )
-            .properties(
-                title="Convergence Température / Point de Rosée (Risque de brouillard/gel quand les lignes se touchent)",
-                height=250
-            )
-        )
-        st.altair_chart(chart_dp, use_container_width=True)
-
-    else:
-        st.info("Données insuffisantes pour les prévisions barométriques.")
+    st.markdown("---")
+    st.subheader("📅 Normales Saisonnières (Mois en cours)")
+    mois_actuel = current_timestamp.month
+    norm = obtenir_normales_saison(mois_actuel)
+    col_n1, col_n2, col_n3 = st.columns(3)
+    col_n1.metric("Moyenne Tn (Mois)", f"{norm['t_min']} °C")
+    col_n2.metric("Moyenne Tx (Mois)", f"{norm['t_max']} °C")
+    col_n3.write(f"**Caractéristique :** {norm['desc']}")
 
 with tab7:
-    st.subheader("📓 Journal de Bord & Climatologie")
+    st.subheader("📓 Journal de Bord & Climat Local")
 
-    mois_courant = current_timestamp.month
-    normale_saison = obtenir_normales_saison(mois_courant)
-
-    st.markdown(f"### 🌡️ Normales de saison — Mois {mois_courant}")
-    c_n1, c_n2 = st.columns(2)
-
-    # Calcul des dérives par rapport aux normales
-    delta_tn_str = None
-    delta_tx_str = None
-    if min_temp != "--":
-        diff_tn = round(float(min_temp) - normale_saison["t_min"], 1)
-        delta_tn_str = f"{diff_tn:+.1f} °C vs normale"
-
-    if max_temp != "--":
-        diff_tx = round(float(max_temp) - normale_saison["t_max"], 1)
-        delta_tx_str = f"{diff_tx:+.1f} °C vs normale"
-
-    c_n1.metric(
-        "Minimale (Tn)",
-        f"{min_temp} °C" if min_temp != "--" else "N/A",
-        delta=delta_tn_str,
-        help=f"Normale climatologique locale : {normale_saison['t_min']} °C"
-    )
-
-    c_n2.metric(
-        "Maximale (Tx)",
-        f"{max_temp} °C" if max_temp != "--" else "N/A",
-        delta=delta_tx_str,
-        help=f"Normale climatologique locale : {normale_saison['t_max']} °C"
-    )
-
-    # Bilan synthétique d'écart aux normales
-    if max_temp != "--" and min_temp != "--":
-        diff_moyenne = round(((float(max_temp) + float(min_temp)) / 2) - ((normale_saison["t_max"] + normale_saison["t_min"]) / 2), 1)
-        if diff_moyenne > 1.5:
-            st.warning(f"🔥 **Anomalie thermique chaude :** Aujourd'hui, la température moyenne observée à Habère-Poche est supérieure de **+{diff_moyenne} °C** aux normales locales du mois.")
-        elif diff_moyenne < -1.5:
-            st.info(f"❄️ **Anomalie thermique froide :** Aujourd'hui, la température moyenne observée à Habère-Poche est inférieure de **{diff_moyenne} °C** aux normales locales du mois.")
-        else:
-            st.success(f"✅ **Dans les normes :** Les températures relevées aujourd'hui sont parfaitement conformes aux normales de saison à Habère-Poche ({diff_moyenne:+.1f} °C d'écart).")
-
-    st.caption(f"**Contexte local :** {normale_saison['desc']}")
-
-    st.markdown("---")
-    st.markdown("### 📝 Ajouter une observation locale")
-
-    with st.form("form_journal", clear_on_submit=True):
-        auteur = st.text_input("Auteur", value="Rémi")
-        obs_texte = st.text_area(
-            "Observation (ex: neige au col, floraison, gelée...)"
-        )
-        soumis = st.form_submit_button("Saisir dans le journal")
-
-        if soumis and obs_texte.strip():
-            sheet_j = connecter_feuille_journal()
-            if sheet_j:
-                date_str = current_timestamp.strftime("%Y-%m-%d %H:%M")
-                sheet_j.append_row([date_str, auteur, obs_texte])
-                st.success("Observation enregistrée dans Google Sheets !")
-            else:
-                st.error("Erreur de connexion au journal Google Sheets.")
-
-    st.markdown("---")
-    st.markdown("### 📖 Dernières notes du journal")
     sheet_j = connecter_feuille_journal()
+
+    with st.form("form_journal"):
+        st.write("Ajouter une observation au journal de bord de la station :")
+        auteur_obs = st.text_input("Auteur", value="Rémi")
+        texte_obs = st.text_area("Observation / Remarque (ex: gelée blanche, premiers flocons, etc.)")
+        submitted = st.form_submit_button("Enregistrer l'observation")
+
+        if submitted:
+            if texte_obs.strip() and sheet_j:
+                try:
+                    date_jour_str = current_timestamp.strftime("%Y-%m-%d %H:%M")
+                    sheet_j.append_row([date_jour_str, auteur_obs, texte_obs])
+                    st.success("Observation enregistrée avec succès dans Google Sheets !")
+                except Exception as e:
+                    st.error(f"Erreur lors de l'enregistrement : {e}")
+            else:
+                st.warning("Veuillez saisir une observation valide.")
+
+    st.markdown("---")
+    st.markdown("### 📜 Historique des observations")
     if sheet_j:
         try:
             records_j = sheet_j.get_all_records()
             if records_j:
                 df_j = pd.DataFrame(records_j)
-                st.dataframe(df_j.tail(10), use_container_width=True)
+                st.dataframe(df_j, use_container_width=True)
             else:
-                st.write("Aucune observation enregistrée pour le moment.")
+                st.info("Aucune observation enregistrée pour le moment.")
         except Exception:
-            st.write("Impossible de charger les notes du journal.")
+            st.info("Impossible de charger le journal pour l'instant.")
+    else:
+        st.info("Feuille de journal non connectée.")
 
 with tab8:
     st.subheader("🌐 Radar Météo & Pluie en direct (Windy)")
+    st.markdown(
+        "Visualisez le flux des précipitations et les passages nuageux en temps réel"
+        " sur la région de Habère-Poche et des Alpes."
+    )
 
     windy_html = """
-    <iframe width="100%" height="450"
-        src="https://embed.windy.com/embed2.html?lat=46.248&lon=6.472&detailLat=46.248&detailLon=6.472&width=100%25&height=450&zoom=10&level=surface&overlay=radar&product=radar&menu=&message=true&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1"
-        frameborder="0">
-    </iframe>
+    <iframe width="100%" height="450" src="https://embed.windy.com/embed2.html?lat=46.255&lon=6.438&zoom=9&level=surface&overlay=rain&product=ecmwf&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1" frameborder="0"></iframe>
     """
-    st.components.v1.html(windy_html, height=460)
+    st.components.v1.html(windy_html, height=470)
